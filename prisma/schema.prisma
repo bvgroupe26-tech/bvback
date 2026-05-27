@@ -1,0 +1,441 @@
+// BV Groupe RH — schéma PostgreSQL (migration depuis SQLite)
+// Dates : DateTime | Booléens : Boolean | JSON : Json
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum SituationFamiliale {
+  celibataire
+  marie
+  divorce
+  veuf
+}
+
+enum TypeContrat {
+  CDI
+  CDD
+  Stage
+  Freelance
+  Interim
+}
+
+enum TypeContratOffre {
+  CDI
+  CDD
+  Stage
+  Freelance
+}
+
+enum StatutEmploye {
+  actif
+  inactif
+  suspendu
+}
+
+enum StatutPresence {
+  present
+  absent
+  retard
+  conge
+  mission
+}
+
+enum TypeAbsence {
+  maladie
+  conge_paye
+  conge_sans_solde
+  maternite
+  paternite
+  autre
+}
+
+enum StatutAbsence {
+  en_attente
+  approuve
+  refuse
+}
+
+enum StatutPaie {
+  en_attente
+  paye
+  annule
+}
+
+enum StatutOffreEmploi {
+  ouverte
+  fermee
+  pourvue
+}
+
+enum StatutCandidature {
+  recu
+  en_cours
+  retenu
+  rejete
+}
+
+enum NiveauCompetence {
+  debutant
+  intermediaire
+  avance
+  expert
+}
+
+enum TypeFormation {
+  formation
+  certification
+  diplome
+}
+
+enum UserRole {
+  admin
+  manager
+  rh
+  employee
+}
+
+enum StatutBudgetEnveloppe {
+  actif
+  clos
+  brouillon
+}
+
+enum StatutBudgetDepense {
+  en_attente
+  approuve
+  refuse
+  paye
+}
+
+enum TypeDocumentRh {
+  contrat
+  avenant
+  attestation
+  bulletin_paie
+  certificat
+  autre
+}
+
+enum TypeNotification {
+  info
+  conge
+  paie
+  document
+  systeme
+}
+
+// ─── Modèles ─────────────────────────────────────────────────────────────────
+
+model Employe {
+  id                    Int                @id @default(autoincrement())
+  matricule             String?            @unique
+  nom                   String
+  prenom                String
+  dateNaissance         DateTime?
+  telephone             String?
+  email                 String?
+  adresse               String?
+  avatar                String?
+  situationFamiliale    SituationFamiliale?
+  nombreEnfants         Int                @default(0)
+  typeContrat           TypeContrat?
+  poste                 String?
+  departement           String?
+  dateEmbauche          DateTime?
+  statut                StatutEmploye      @default(actif)
+  salaireBase           Float              @default(0)
+  defPrimeTransport       Float              @default(0)
+  defPrimeLogement        Float              @default(0)
+  defPrimePerformance     Float              @default(0)
+  defAutresPrimes         Float              @default(0)
+  defTauxCnss             Float?
+  defTauxImpot            Float?
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  deletedAt               DateTime?
+
+  presences      Presence[]
+  absences       Absence[]
+  paies          Paie[]
+  competences    Competence[]
+  formations     Formation[]
+  evaluations    Evaluation[]
+  activiteLogs   ActiviteLog[]
+  documents      DocumentRh[]
+  notifications  Notification[]
+
+  @@map("employes")
+}
+
+model Presence {
+  id                   Int            @id @default(autoincrement())
+  employeId            Int
+  date                 DateTime
+  heureEntree          String?
+  heureSortie          String?
+  statut               StatutPresence
+  justification        String?
+  heuresSupplementaires Float         @default(0)
+  deletedAt             DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+  @@index([employeId, date])
+  @@map("presences")
+}
+
+model Absence {
+  id            Int           @id @default(autoincrement())
+  employeId     Int
+  dateDebut     DateTime
+  dateFin       DateTime
+  typeAbsence   TypeAbsence
+  justification String?
+  statut        StatutAbsence @default(en_attente)
+  createdAt     DateTime      @default(now())
+  deletedAt     DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@index([employeId])
+  @@map("absences")
+}
+
+model Paie {
+  id                Int        @id @default(autoincrement())
+  employeId         Int
+  mois              String
+  annee             Int
+  salaireBase       Float      @default(0)
+  primeTransport    Float      @default(0)
+  primeLogement     Float      @default(0)
+  primePerformance  Float      @default(0)
+  autresPrimes      Float      @default(0)
+  cnss              Float      @default(0)
+  impot             Float      @default(0)
+  autresRetenues    Float      @default(0)
+  salaireNet        Float?
+  statut            StatutPaie @default(en_attente)
+  datePaiement      DateTime?
+  createdAt         DateTime   @default(now())
+  deletedAt         DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@index([employeId, mois, annee])
+  @@index([annee, mois])
+  @@index([employeId])
+  @@map("paie")
+}
+
+model OffreEmploi {
+  id                  Int               @id @default(autoincrement())
+  titre               String
+  departement         String?
+  typeContrat         TypeContratOffre
+  description         String
+  competencesRequises String?
+  cibleCandidats      Int               @default(10)
+  datePublication     DateTime          @default(now())
+  dateCloture         DateTime?
+  statut              StatutOffreEmploi @default(ouverte)
+  deletedAt           DateTime?
+
+  candidatures Candidature[]
+
+  @@map("offres_emploi")
+}
+
+model Candidature {
+  id                Int               @id @default(autoincrement())
+  offreId           Int
+  nom               String
+  prenom            String
+  email             String
+  telephone         String?
+  cvPath            String?
+  lettreMotivation  String?
+  statut            StatutCandidature @default(recu)
+  dateCandidature   DateTime          @default(now())
+  deletedAt         DateTime?
+
+  offre OffreEmploi @relation(fields: [offreId], references: [id], onDelete: Cascade)
+
+  @@map("candidatures")
+}
+
+model Competence {
+  id            Int              @id @default(autoincrement())
+  employeId     Int
+  nomCompetence String
+  niveau        NiveauCompetence
+  categorie     String?
+  deletedAt     DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@map("competences")
+}
+
+model Formation {
+  id              Int           @id @default(autoincrement())
+  employeId       Int
+  titre           String
+  type            TypeFormation
+  organisme       String?
+  dateObtention   DateTime
+  dateExpiration  DateTime?
+  fichierPath     String?
+  deletedAt       DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@map("formations")
+}
+
+model Evaluation {
+  id              Int       @id @default(autoincrement())
+  employeId       Int
+  periode         String
+  noteGlobale     Float?
+  ponctualite     Float?
+  qualiteTravail  Float?
+  travailEquipe   Float?
+  initiative      Float?
+  commentaire     String?
+  evaluateur      String?
+  dateEvaluation  DateTime  @default(now())
+  deletedAt       DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@map("evaluations")
+}
+
+model ActiviteLog {
+  id          Int       @id @default(autoincrement())
+  type        String
+  description String
+  employeId   Int?
+  meta        Json?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  employe Employe? @relation(fields: [employeId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@map("activite_log")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String
+  passwordHash String
+  nom          String
+  prenom       String
+  role         UserRole  @default(admin)
+  createdAt    DateTime  @default(now())
+  lastLogin    DateTime?
+  deletedAt    DateTime?
+
+  @@index([email])
+  @@map("users")
+}
+
+model BudgetCategorie {
+  id          Int      @id @default(autoincrement())
+  code        String
+  libelle     String
+  description String?
+  createdAt   DateTime @default(now())
+  deletedAt   DateTime?
+
+  depenses BudgetDepense[]
+
+  @@index([code])
+  @@map("budget_categories")
+}
+
+model BudgetEnveloppe {
+  id            Int                   @id @default(autoincrement())
+  libelle       String
+  departement   String?
+  annee         Int
+  montantPrevu  Float
+  statut        StatutBudgetEnveloppe @default(actif)
+  notes         String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  deletedAt     DateTime?
+
+  depenses BudgetDepense[]
+
+  @@index([annee])
+  @@map("budget_enveloppes")
+}
+
+model BudgetDepense {
+  id              Int                 @id @default(autoincrement())
+  enveloppeId     Int
+  categorieId     Int?
+  libelle         String
+  montant         Float
+  dateDepense     DateTime
+  fournisseur     String?
+  referencePiece  String?
+  commentaire     String?
+  statut          StatutBudgetDepense @default(en_attente)
+  createdAt       DateTime            @default(now())
+  deletedAt       DateTime?
+
+  enveloppe BudgetEnveloppe  @relation(fields: [enveloppeId], references: [id], onDelete: Cascade)
+  categorie BudgetCategorie? @relation(fields: [categorieId], references: [id], onDelete: SetNull)
+
+  @@index([enveloppeId])
+  @@index([dateDepense])
+  @@map("budget_depenses")
+}
+
+model DocumentRh {
+  id          Int              @id @default(autoincrement())
+  employeId   Int
+  titre       String
+  type        TypeDocumentRh
+  fichierPath String
+  taille      Int?
+  createdAt   DateTime         @default(now())
+  deletedAt   DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@index([employeId])
+  @@map("documents_rh")
+}
+
+model Notification {
+  id          Int       @id @default(autoincrement())
+  employeId   Int
+  titre       String
+  message     String
+  type        TypeNotification
+  lu          Boolean   @default(false)
+  luAt        DateTime?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+
+  @@index([employeId])
+  @@index([createdAt(sort: Desc)])
+  @@map("notifications")
+}
