@@ -4,8 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Employe, Paie, Prisma, StatutPaie } from '@prisma/client';
+import { Employe, Paie, Prisma, StatutPaie, TypeNotification } from '@prisma/client';
 import { ActiviteService } from '../activite/activite.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePaieDto } from './dto/create-paie.dto';
 import { GeneratePaieDto } from './dto/generate-paie.dto';
@@ -32,6 +33,7 @@ export class PaieService {
     private readonly prisma: PrismaService,
     private readonly paieCalc: PaieCalcService,
     private readonly activiteService: ActiviteService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   findAll(query: QueryPaieDto): Promise<PaieWithEmploye[]> {
@@ -136,7 +138,9 @@ export class PaieService {
       impot: dto.impot,
     });
 
-    return this.prisma.paie.create({
+    const statut = dto.statut ?? StatutPaie.en_attente;
+
+    const bulletin = await this.prisma.paie.create({
       data: {
         employeId: dto.employeId,
         mois: dto.mois,
@@ -152,12 +156,31 @@ export class PaieService {
         salaireNet: calc.salaireNet,
         joursTravailles: eligibility.joursTravailles,
         joursPeriode: eligibility.joursPeriode,
-        statut: dto.statut ?? StatutPaie.en_attente,
-        datePaiement:
-          dto.statut === StatutPaie.paye ? new Date() : null,
+        statut,
+        datePaiement: statut === StatutPaie.paye ? new Date() : null,
       },
       include: paieWithEmployeInclude,
     });
+
+    if (statut === StatutPaie.paye) {
+      await this.notifyBulletinPaye(bulletin);
+    } else {
+      await this.notificationsService.safeNotifyEmploye(
+        bulletin.employeId,
+        'Bulletin de paie préparé',
+        `Votre bulletin de paie pour ${dto.mois}/${dto.annee} a été enregistré par la RH.`,
+        TypeNotification.paie,
+        {
+          paieId: bulletin.id,
+          employeId: bulletin.employeId,
+          mois: dto.mois,
+          annee: dto.annee,
+          statut,
+        },
+      );
+    }
+
+    return bulletin;
   }
 
   async generateBulk(dto: GeneratePaieDto): Promise<GeneratePaieResult> {
@@ -261,6 +284,8 @@ export class PaieService {
       },
     );
 
+    await this.notifyBulletinsGenerated(bulletins, dto.mois, dto.annee);
+
     return result;
   }
 
@@ -308,7 +333,7 @@ export class PaieService {
       }
     }
 
-    return this.prisma.paie.update({
+    const updated = await this.prisma.paie.update({
       where: { id },
       data: {
         employeId: dto.employeId,
@@ -328,6 +353,15 @@ export class PaieService {
       },
       include: paieWithEmployeInclude,
     });
+
+    if (
+      dto.statut === StatutPaie.paye &&
+      existing.statut !== StatutPaie.paye
+    ) {
+      await this.notifyBulletinPaye(updated);
+    }
+
+    return updated;
   }
 
   async remove(id: number): Promise<void> {
@@ -517,6 +551,56 @@ export class PaieService {
     }
 
     return employe;
+  }
+
+  private async notifyBulletinsGenerated(
+    bulletins: PaieWithEmploye[],
+    mois: string,
+    annee: number,
+  ): Promise<void> {
+    const periode = `${mois}/${annee}`;
+
+    for (const bulletin of bulletins) {
+      const prorata =
+        bulletin.joursTravailles != null &&
+        bulletin.joursPeriode != null &&
+        bulletin.joursTravailles < bulletin.joursPeriode
+          ? ` (prorata ${bulletin.joursTravailles}/${bulletin.joursPeriode} jours)`
+          : '';
+
+      await this.notificationsService.safeNotifyEmploye(
+        bulletin.employeId,
+        'Bulletin de paie préparé',
+        `Votre bulletin de paie pour ${periode} a été préparé par la RH${prorata}. Il sera visible dès validation du paiement.`,
+        TypeNotification.paie,
+        {
+          paieId: bulletin.id,
+          employeId: bulletin.employeId,
+          mois,
+          annee,
+          statut: StatutPaie.en_attente,
+        },
+      );
+    }
+  }
+
+  private async notifyBulletinPaye(bulletin: PaieWithEmploye): Promise<void> {
+    const periode = `${bulletin.mois}/${bulletin.annee}`;
+    const net = bulletin.salaireNet?.toLocaleString('fr-FR') ?? '—';
+
+    await this.notificationsService.safeNotifyEmploye(
+      bulletin.employeId,
+      'Bulletin de paie disponible',
+      `Votre bulletin de paie ${periode} est disponible (net à payer : ${net} FCFA). Consultez-le dans l'application.`,
+      TypeNotification.paie,
+      {
+        paieId: bulletin.id,
+        employeId: bulletin.employeId,
+        mois: bulletin.mois,
+        annee: bulletin.annee,
+        statut: StatutPaie.paye,
+      },
+    );
   }
 
   private async getEmployeOrThrow(employeId: number): Promise<Employe> {

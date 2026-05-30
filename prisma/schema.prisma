@@ -351,6 +351,8 @@ model User {
   lastLogin    DateTime?
   deletedAt    DateTime?
 
+  notifications Notification[]
+
   @@index([email])
   @@map("users")
 }
@@ -426,19 +428,23 @@ model DocumentRh {
 }
 
 model Notification {
-  id          Int       @id @default(autoincrement())
-  employeId   Int
+  id          Int              @id @default(autoincrement())
+  employeId   Int?
+  userId      Int?
   titre       String
   message     String
   type        TypeNotification
-  lu          Boolean   @default(false)
+  meta        Json?
+  lu          Boolean          @default(false)
   luAt        DateTime?
-  createdAt   DateTime  @default(now())
+  createdAt   DateTime         @default(now())
   deletedAt   DateTime?
 
-  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  employe Employe? @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([employeId])
+  @@index([userId])
   @@index([createdAt(sort: Desc)])
   @@map("notifications")
 }

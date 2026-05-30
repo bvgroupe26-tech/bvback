@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Put,
@@ -32,24 +33,57 @@ export class NotificationsController {
   @Get('me')
   @ApiOperation({
     summary: 'Mes notifications',
-    description: 'Liste des notifications de l\'employé connecté.',
+    description:
+      'Liste centralisée : notifications adressées au compte (RH/admin) ou à la fiche employé liée (PWA).',
   })
-  @ApiOkDataResponse('Notifications de l\'employé connecté')
+  @ApiOkDataResponse('Notifications du compte connecté')
   @ApiAuthResponses()
   findMine(@CurrentUser() user: UserPayload): Promise<Notification[]> {
-    return this.notificationsService.findByUserId(user.id);
+    return this.notificationsService.findForUser(user.id);
+  }
+
+  @Get('me/unread-count')
+  @ApiOperation({
+    summary: 'Nombre de notifications non lues',
+    description: 'Compteur pour badge cloche (admin et employé).',
+  })
+  @ApiOkDataResponse('Nombre de notifications non lues')
+  @ApiAuthResponses()
+  countUnread(
+    @CurrentUser() user: UserPayload,
+  ): Promise<{ count: number }> {
+    return this.notificationsService
+      .countUnreadForUser(user.id)
+      .then((count) => ({ count }));
+  }
+
+  @Put('me/read-all')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Tout marquer comme lu',
+    description: 'Marque toutes les notifications du compte connecté comme lues.',
+  })
+  @ApiOkDataResponse('Nombre de notifications mises à jour')
+  @ApiAuthResponses()
+  markAllAsRead(
+    @CurrentUser() user: UserPayload,
+  ): Promise<{ updated: number }> {
+    return this.notificationsService.markAllAsRead(user.id);
   }
 
   @Put(':id/read')
   @ApiOperation({
     summary: 'Marquer comme lu',
-    description: 'Marque une notification comme lue.',
+    description: 'Marque une notification comme lue (uniquement les siennes).',
   })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiOkDataResponse('Notification mise à jour')
   @ApiNotFoundResponse('Notification')
   @ApiAuthResponses()
-  markAsRead(@Param('id', ParseIntPipe) id: number): Promise<Notification> {
-    return this.notificationsService.markAsRead(id);
+  markAsRead(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: UserPayload,
+  ): Promise<Notification> {
+    return this.notificationsService.markAsRead(id, user.id);
   }
 }

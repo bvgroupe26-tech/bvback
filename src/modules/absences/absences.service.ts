@@ -4,7 +4,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Absence, Prisma, StatutAbsence, TypeAbsence } from '@prisma/client';
+import {
+  Absence,
+  Prisma,
+  StatutAbsence,
+  TypeAbsence,
+  TypeNotification,
+} from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAbsenceDto } from './dto/create-absence.dto';
 import { QueryAbsencesDto } from './dto/query-absences.dto';
@@ -19,7 +26,10 @@ import {
 export class AbsencesService {
   private readonly logger = new Logger(AbsencesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   findAll(query: QueryAbsencesDto): Promise<AbsenceWithEmploye[]> {
     return this.prisma.absence.findMany({
@@ -45,7 +55,7 @@ export class AbsencesService {
   async create(dto: CreateAbsenceDto): Promise<AbsenceWithEmploye> {
     await this.assertEmployeExists(dto.employeId);
 
-    return this.prisma.absence.create({
+    const absence = await this.prisma.absence.create({
       data: {
         employeId: dto.employeId,
         dateDebut: new Date(dto.dateDebut),
@@ -56,6 +66,22 @@ export class AbsencesService {
       },
       include: absenceWithEmployeInclude,
     });
+
+    if (absence.statut === StatutAbsence.en_attente) {
+      const nom = `${absence.employe.prenom} ${absence.employe.nom}`;
+      await this.notificationsService.safeNotifyRhTeam(
+        'Nouvelle demande d\'absence',
+        `${nom} a soumis une demande (${this.formatTypeAbsence(absence.typeAbsence)}) du ${this.formatDate(absence.dateDebut)} au ${this.formatDate(absence.dateFin)}.`,
+        TypeNotification.conge,
+        {
+          absenceId: absence.id,
+          employeId: absence.employeId,
+          statut: absence.statut,
+        },
+      );
+    }
+
+    return absence;
   }
 
   async update(id: number, dto: UpdateAbsenceDto): Promise<AbsenceWithEmploye> {
@@ -73,6 +99,7 @@ export class AbsencesService {
 
     if (dto.statut !== undefined && dto.statut !== existing.statut) {
       await this.logStatutChange(existing, dto.statut);
+      await this.notifyAbsenceStatutChange(updated, dto.statut);
     }
 
     return updated;
@@ -278,5 +305,48 @@ export class AbsencesService {
     const date = new Date(isoDate);
     date.setHours(23, 59, 59, 999);
     return date;
+  }
+
+  private async notifyAbsenceStatutChange(
+    absence: AbsenceWithEmploye,
+    nouveauStatut: StatutAbsence,
+  ): Promise<void> {
+    if (
+      nouveauStatut !== StatutAbsence.approuve &&
+      nouveauStatut !== StatutAbsence.refuse
+    ) {
+      return;
+    }
+
+    const libelle =
+      nouveauStatut === StatutAbsence.approuve ? 'acceptée' : 'refusée';
+
+    await this.notificationsService.safeNotifyEmploye(
+      absence.employeId,
+      `Demande d'absence ${libelle}`,
+      `Votre demande du ${this.formatDate(absence.dateDebut)} au ${this.formatDate(absence.dateFin)} (${this.formatTypeAbsence(absence.typeAbsence)}) a été ${libelle} par la RH.`,
+      TypeNotification.conge,
+      {
+        absenceId: absence.id,
+        employeId: absence.employeId,
+        statut: nouveauStatut,
+      },
+    );
+  }
+
+  private formatDate(date: Date): string {
+    return new Date(date).toLocaleDateString('fr-FR');
+  }
+
+  private formatTypeAbsence(type: TypeAbsence): string {
+    const labels: Record<TypeAbsence, string> = {
+      maladie: 'maladie',
+      conge_paye: 'congé payé',
+      conge_sans_solde: 'congé sans solde',
+      maternite: 'maternité',
+      paternite: 'paternité',
+      autre: 'autre',
+    };
+    return labels[type] ?? type;
   }
 }

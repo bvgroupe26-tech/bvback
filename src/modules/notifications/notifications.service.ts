@@ -1,21 +1,48 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Notification } from '@prisma/client';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Notification, Prisma, TypeNotification, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationMeta } from './types/notification-meta.type';
+
+const RH_ROLES: UserRole[] = [UserRole.admin, UserRole.rh, UserRole.manager];
+
+interface CreateNotificationInput {
+  employeId?: number;
+  userId?: number;
+  titre: string;
+  message: string;
+  type: TypeNotification;
+  meta?: NotificationMeta;
+}
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByUserId(userId: number): Promise<Notification[]> {
-    const employe = await this.findEmployeByUserId(userId);
+  async findForUser(userId: number): Promise<Notification[]> {
+    const where = await this.buildRecipientWhere(userId);
 
     return this.prisma.notification.findMany({
-      where: { employeId: employe.id },
+      where,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async markAsRead(id: number): Promise<Notification> {
+  async countUnreadForUser(userId: number): Promise<number> {
+    const where = await this.buildRecipientWhere(userId);
+
+    return this.prisma.notification.count({
+      where: { ...where, lu: false },
+    });
+  }
+
+  async markAsRead(id: number, userId: number): Promise<Notification> {
     const notification = await this.prisma.notification.findUnique({
       where: { id },
     });
@@ -24,46 +51,178 @@ export class NotificationsService {
       throw new NotFoundException(`Notification #${id} introuvable`);
     }
 
+    const canAccess = await this.canUserAccessNotification(userId, notification);
+    if (!canAccess) {
+      throw new ForbiddenException('Accès refusé à cette notification');
+    }
+
     return this.prisma.notification.update({
       where: { id },
       data: { lu: true, luAt: new Date() },
     });
   }
 
-  async countUnreadByEmployeId(employeId: number): Promise<number> {
-    return this.prisma.notification.count({
-      where: { employeId, lu: false },
+  async markAllAsRead(userId: number): Promise<{ updated: number }> {
+    const where = await this.buildRecipientWhere(userId);
+
+    const result = await this.prisma.notification.updateMany({
+      where: { ...where, lu: false },
+      data: { lu: true, luAt: new Date() },
     });
+
+    return { updated: result.count };
   }
 
-  async create(
+  async notifyEmploye(
     employeId: number,
     titre: string,
     message: string,
-    type: 'info' | 'conge' | 'paie' | 'document' | 'systeme',
+    type: TypeNotification,
+    meta?: NotificationMeta,
   ): Promise<Notification> {
-    return this.prisma.notification.create({
-      data: { employeId, titre, message, type },
+    return this.createNotification({
+      employeId,
+      titre,
+      message,
+      type,
+      meta,
     });
   }
 
-  private async findEmployeByUserId(userId: number) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+  async notifyUser(
+    userId: number,
+    titre: string,
+    message: string,
+    type: TypeNotification,
+    meta?: NotificationMeta,
+  ): Promise<Notification> {
+    return this.createNotification({
+      userId,
+      titre,
+      message,
+      type,
+      meta,
+    });
+  }
 
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email },
+  /** Notifie tous les comptes admin, RH et manager. */
+  async notifyRhTeam(
+    titre: string,
+    message: string,
+    type: TypeNotification,
+    meta?: NotificationMeta,
+  ): Promise<number> {
+    const staff = await this.prisma.user.findMany({
+      where: { role: { in: RH_ROLES } },
+      select: { id: true },
     });
 
-    if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
+    if (staff.length === 0) {
+      return 0;
     }
 
-    return employe;
+    const result = await this.prisma.notification.createMany({
+      data: staff.map((user) => ({
+        userId: user.id,
+        titre,
+        message,
+        type,
+        meta: meta as Prisma.InputJsonValue | undefined,
+      })),
+    });
+
+    return result.count;
+  }
+
+  async safeNotifyEmploye(
+    employeId: number,
+    titre: string,
+    message: string,
+    type: TypeNotification,
+    meta?: NotificationMeta,
+  ): Promise<void> {
+    try {
+      await this.notifyEmploye(employeId, titre, message, type, meta);
+    } catch (error) {
+      this.logger.warn(
+        `Notification employé #${employeId} non envoyée`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  async safeNotifyRhTeam(
+    titre: string,
+    message: string,
+    type: TypeNotification,
+    meta?: NotificationMeta,
+  ): Promise<void> {
+    try {
+      await this.notifyRhTeam(titre, message, type, meta);
+    } catch (error) {
+      this.logger.warn(
+        'Notification équipe RH non envoyée',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private async createNotification(
+    input: CreateNotificationInput,
+  ): Promise<Notification> {
+    if (!input.employeId && !input.userId) {
+      throw new Error('employeId ou userId requis pour une notification');
+    }
+
+    return this.prisma.notification.create({
+      data: {
+        employeId: input.employeId,
+        userId: input.userId,
+        titre: input.titre,
+        message: input.message,
+        type: input.type,
+        meta: input.meta as Prisma.InputJsonValue | undefined,
+      },
+    });
+  }
+
+  private async buildRecipientWhere(
+    userId: number,
+  ): Promise<Prisma.NotificationWhereInput> {
+    const employe = await this.findEmployeByUserIdOptional(userId);
+    const or: Prisma.NotificationWhereInput[] = [{ userId }];
+
+    if (employe) {
+      or.push({ employeId: employe.id });
+    }
+
+    return { OR: or };
+  }
+
+  private async canUserAccessNotification(
+    userId: number,
+    notification: Notification,
+  ): Promise<boolean> {
+    if (notification.userId === userId) {
+      return true;
+    }
+
+    if (notification.employeId) {
+      const employe = await this.findEmployeByUserIdOptional(userId);
+      return employe?.id === notification.employeId;
+    }
+
+    return false;
+  }
+
+  private async findEmployeByUserIdOptional(userId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.email) {
+      return null;
+    }
+
+    return this.prisma.employe.findFirst({
+      where: { email: user.email },
+    });
   }
 }

@@ -6,7 +6,7 @@ Inventaire **complet** des routes exposées par le backend NestJS, pour vérific
 |---|---|
 | **Base URL** | `http://localhost:3000/api` |
 | **Swagger** | `/api/docs` |
-| **Total routes** | **97** |
+| **Total routes** | **99** |
 
 ---
 
@@ -439,12 +439,14 @@ Erreur **400** si employé non éligible (suspendu, hors période, etc.).
 
 ---
 
-## 14. Notifications — `/api/notifications` (2 routes)
+## 14. Notifications — `/api/notifications` (4 routes)
 
 | # | Méthode | Route | Auth | Cible | Description |
 |---|---------|-------|------|-------|-------------|
-| 91 | `GET` | `/notifications/me` | 🔒 | PWA | Mes notifications |
-| 92 | `PUT` | `/notifications/:id/read` | 🔒 | PWA | Marquer comme lue |
+| 91 | `GET` | `/notifications/me` | 🔒 | ADMIN+PWA | Mes notifications (centralisées) |
+| 92 | `GET` | `/notifications/me/unread-count` | 🔒 | ADMIN+PWA | Badge non lues `{ count }` |
+| 93 | `PUT` | `/notifications/me/read-all` | 🔒 | ADMIN+PWA | Tout marquer comme lu |
+| 94 | `PUT` | `/notifications/:id/read` | 🔒 | ADMIN+PWA | Marquer une notification |
 
 **Types notification :** `absence`, `paie`, `document`, `conge`, `systeme`
 
@@ -496,6 +498,8 @@ GET  /documents/me
 GET  /documents/:id/download
 
 GET  /notifications/me
+GET  /notifications/me/unread-count
+PUT  /notifications/me/read-all
 PUT  /notifications/:id/read
 ```
 
@@ -582,6 +586,7 @@ Tous les modules sauf routes `/me` employé, plus :
 |---------|---------|
 | [README-PWA-EMPLOYEE.md](./README-PWA-EMPLOYEE.md) | Détail routes PWA + exemples curl |
 | [README-FRONTEND.md](./README-FRONTEND.md) | Changements récents (prorata, dateFinContrat, génération paie) |
+| [README-NOTIFICATIONS.md](./README-NOTIFICATIONS.md) | Notifications centralisées admin + PWA |
 | `/api/docs` | Swagger interactif |
 
 ---
