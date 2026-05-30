@@ -94,7 +94,9 @@ export class PaieController {
   @ApiOperation({
     summary: 'Créer ou générer des bulletins',
     description:
-      'Mode manuel : corps complet avec employeId. Mode masse : uniquement { mois, annee }.',
+      'Mode manuel : corps complet avec employeId. Mode masse : uniquement { mois, annee }. ' +
+      'La génération masse n\'inclut que les employés éligibles (actifs ou inactifs avec dateFinContrat sur la période), ' +
+      'avec prorata automatique selon dateEmbauche et dateFinContrat. Suspendus et hors période ignorés avec détail.',
   })
   @ApiBody({
     description: 'CreatePaieDto (manuel) ou GeneratePaieDto (mois + annee)',

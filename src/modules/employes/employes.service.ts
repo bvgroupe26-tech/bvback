@@ -284,6 +284,9 @@ export class EmployesService {
       poste: dto.poste,
       departement: dto.departement,
       dateEmbauche: dto.dateEmbauche ? new Date(dto.dateEmbauche) : undefined,
+      dateFinContrat: dto.dateFinContrat
+        ? new Date(dto.dateFinContrat)
+        : undefined,
       statut: dto.statut,
       salaireBase: dto.salaireBase,
       defPrimeTransport: dto.defPrimeTransport,
@@ -318,6 +321,11 @@ export class EmployesService {
     if (dto.departement !== undefined) data.departement = dto.departement;
     if (dto.dateEmbauche !== undefined) {
       data.dateEmbauche = dto.dateEmbauche ? new Date(dto.dateEmbauche) : null;
+    }
+    if (dto.dateFinContrat !== undefined) {
+      data.dateFinContrat = dto.dateFinContrat
+        ? new Date(dto.dateFinContrat)
+        : null;
     }
     if (dto.statut !== undefined) data.statut = dto.statut;
     if (dto.salaireBase !== undefined) data.salaireBase = dto.salaireBase;

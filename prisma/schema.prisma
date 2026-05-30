@@ -151,6 +151,7 @@ model Employe {
   poste                 String?
   departement           String?
   dateEmbauche          DateTime?
+  dateFinContrat        DateTime?
   statut                StatutEmploye      @default(actif)
   salaireBase           Float              @default(0)
   defPrimeTransport       Float              @default(0)
@@ -225,6 +226,8 @@ model Paie {
   impot             Float      @default(0)
   autresRetenues    Float      @default(0)
   salaireNet        Float?
+  joursTravailles   Int?
+  joursPeriode      Int?
   statut            StatutPaie @default(en_attente)
   datePaiement      DateTime?
   createdAt         DateTime   @default(now())

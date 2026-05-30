@@ -15,9 +15,21 @@ export type PaieWithEmploye = Prisma.PaieGetPayload<{
   include: typeof paieWithEmployeInclude;
 }>;
 
+import type { PaieSkipReason, PaieSkipSummary } from '../paie-eligibility.util';
+
+export interface PaieSkippedEntry {
+  employeId: number;
+  nom: string;
+  prenom: string;
+  reason: PaieSkipReason;
+  message: string;
+}
+
 export interface GeneratePaieResult {
   generated: number;
   skipped: number;
+  summary: PaieSkipSummary;
+  skippedDetails: PaieSkippedEntry[];
   bulletins: PaieWithEmploye[];
 }
 

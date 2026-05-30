@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from './prisma-client';
 
 const SOFT_DELETE_MODELS = new Set([
@@ -84,10 +84,37 @@ export const prismaServiceProvider = {
 
 @Injectable()
 export class PrismaLifecycle implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(PrismaLifecycle.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit(): Promise<void> {
-    await this.prisma.$connect();
+    const maxAttempts = 5;
+    const delayMs = 2000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.prisma.$connect();
+        if (attempt > 1) {
+          this.logger.log(`Connexion PostgreSQL établie (tentative ${attempt})`);
+        }
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          message.includes("Can't reach database") ||
+          message.includes('P1001');
+
+        if (!retryable || attempt === maxAttempts) {
+          throw error;
+        }
+
+        this.logger.warn(
+          `PostgreSQL injoignable (tentative ${attempt}/${maxAttempts}), nouvel essai dans ${delayMs / 1000}s…`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

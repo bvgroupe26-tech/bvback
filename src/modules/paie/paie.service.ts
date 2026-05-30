@@ -1,9 +1,10 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Employe, Paie, Prisma, StatutEmploye, StatutPaie } from '@prisma/client';
+import { Employe, Paie, Prisma, StatutPaie } from '@prisma/client';
 import { ActiviteService } from '../activite/activite.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePaieDto } from './dto/create-paie.dto';
@@ -12,8 +13,14 @@ import { QueryPaieDto } from './dto/query-paie.dto';
 import { UpdatePaieDto } from './dto/update-paie.dto';
 import { CalcInput, PaieCalcService } from './paie-calc.service';
 import {
+  buildProratedPaieAmounts,
+  checkPaieEligibility,
+  createEmptyPaieSkipSummary,
+} from './paie-eligibility.util';
+import {
   GeneratePaieResult,
   PaieEvolutionPoint,
+  PaieSkippedEntry,
   PaieStatsResponse,
   PaieWithEmploye,
   paieWithEmployeInclude,
@@ -77,6 +84,13 @@ export class PaieService {
       `Poste         : ${emp?.poste ?? '-'}`,
       `Département   : ${emp?.departement ?? '-'}`,
       `Période       : ${bulletin.mois}/${bulletin.annee}`,
+      ...(bulletin.joursTravailles != null &&
+      bulletin.joursPeriode != null &&
+      bulletin.joursTravailles < bulletin.joursPeriode
+        ? [
+            `Prorata       : ${bulletin.joursTravailles}/${bulletin.joursPeriode} jours`,
+          ]
+        : []),
       '',
       '───────────────────────────────────────────',
       ' RÉMUNÉRATION',
@@ -110,6 +124,7 @@ export class PaieService {
     await this.assertNotExists(dto.employeId, dto.mois, dto.annee);
 
     const employe = await this.getEmployeOrThrow(dto.employeId);
+    const eligibility = this.assertPaieEligible(employe, dto.mois, dto.annee);
     const calc = this.calcFromEmploye(employe, {
       salaireBase: dto.salaireBase,
       primeTransport: dto.primeTransport,
@@ -135,6 +150,8 @@ export class PaieService {
         impot: calc.impot,
         autresRetenues: dto.autresRetenues,
         salaireNet: calc.salaireNet,
+        joursTravailles: eligibility.joursTravailles,
+        joursPeriode: eligibility.joursPeriode,
         statut: dto.statut ?? StatutPaie.en_attente,
         datePaiement:
           dto.statut === StatutPaie.paye ? new Date() : null,
@@ -145,11 +162,12 @@ export class PaieService {
 
   async generateBulk(dto: GeneratePaieDto): Promise<GeneratePaieResult> {
     const employes = await this.prisma.employe.findMany({
-      where: { statut: StatutEmploye.actif },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
 
     const bulletins: PaieWithEmploye[] = [];
-    let skipped = 0;
+    const skippedDetails: PaieSkippedEntry[] = [];
+    const summary = createEmptyPaieSkipSummary();
 
     await this.prisma.$transaction(async (tx) => {
       for (const employe of employes) {
@@ -162,16 +180,38 @@ export class PaieService {
         });
 
         if (exists) {
-          skipped++;
+          summary.deja_existant++;
+          skippedDetails.push({
+            employeId: employe.id,
+            nom: employe.nom,
+            prenom: employe.prenom,
+            reason: 'deja_existant',
+            message: `Bulletin déjà existant pour ${dto.mois}/${dto.annee}`,
+          });
           continue;
         }
 
+        const eligibility = checkPaieEligibility(employe, dto.mois, dto.annee);
+        if (!eligibility.eligible && eligibility.reason) {
+          summary[eligibility.reason]++;
+          skippedDetails.push({
+            employeId: employe.id,
+            nom: employe.nom,
+            prenom: employe.prenom,
+            reason: eligibility.reason,
+            message: eligibility.message ?? 'Non éligible à la paie',
+          });
+          continue;
+        }
+
+        const prorata = buildProratedPaieAmounts(employe, dto.mois, dto.annee);
+
         const calc = this.calcFromEmploye(employe, {
-          salaireBase: employe.salaireBase,
-          primeTransport: employe.defPrimeTransport,
-          primeLogement: employe.defPrimeLogement,
-          primePerformance: employe.defPrimePerformance,
-          autresPrimes: employe.defAutresPrimes,
+          salaireBase: prorata.salaireBase,
+          primeTransport: prorata.primeTransport,
+          primeLogement: prorata.primeLogement,
+          primePerformance: prorata.primePerformance,
+          autresPrimes: prorata.autresPrimes,
           autresRetenues: 0,
         });
 
@@ -180,15 +220,17 @@ export class PaieService {
             employeId: employe.id,
             mois: dto.mois,
             annee: dto.annee,
-            salaireBase: employe.salaireBase,
-            primeTransport: employe.defPrimeTransport,
-            primeLogement: employe.defPrimeLogement,
-            primePerformance: employe.defPrimePerformance,
-            autresPrimes: employe.defAutresPrimes,
+            salaireBase: prorata.salaireBase,
+            primeTransport: prorata.primeTransport,
+            primeLogement: prorata.primeLogement,
+            primePerformance: prorata.primePerformance,
+            autresPrimes: prorata.autresPrimes,
             cnss: calc.cnss,
             impot: calc.impot,
             autresRetenues: 0,
             salaireNet: calc.salaireNet,
+            joursTravailles: prorata.joursTravailles,
+            joursPeriode: prorata.joursPeriode,
             statut: StatutPaie.en_attente,
           },
           include: paieWithEmployeInclude,
@@ -200,19 +242,22 @@ export class PaieService {
 
     const result: GeneratePaieResult = {
       generated: bulletins.length,
-      skipped,
+      skipped: skippedDetails.length,
+      summary,
+      skippedDetails,
       bulletins,
     };
 
     await this.activiteService.log(
       'paie_generee',
-      `${result.generated} bulletins générés pour ${dto.mois}/${dto.annee}`,
+      `${result.generated} bulletins générés pour ${dto.mois}/${dto.annee} (${result.skipped} ignorés)`,
       null,
       {
         mois: dto.mois,
         annee: dto.annee,
         count: result.generated,
         skipped: result.skipped,
+        summary: result.summary,
       },
     );
 
@@ -421,6 +466,20 @@ export class PaieService {
       autresPrimes: dto.autresPrimes ?? existing.autresPrimes,
       autresRetenues: dto.autresRetenues ?? existing.autresRetenues,
     };
+  }
+
+  private assertPaieEligible(
+    employe: Employe,
+    mois: string,
+    annee: number,
+  ): ReturnType<typeof checkPaieEligibility> {
+    const eligibility = checkPaieEligibility(employe, mois, annee);
+    if (!eligibility.eligible) {
+      throw new BadRequestException(
+        `Paie impossible pour ${employe.prenom} ${employe.nom} : ${eligibility.message}`,
+      );
+    }
+    return eligibility;
   }
 
   private async assertNotExists(

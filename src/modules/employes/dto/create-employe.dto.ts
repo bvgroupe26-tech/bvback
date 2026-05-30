@@ -138,6 +138,15 @@ export class CreateEmployeDto {
   dateEmbauche?: string;
 
   @ApiPropertyOptional({
+    example: '2026-12-31',
+    description:
+      'Date de fin de contrat (AAAA-MM-JJ). Utilisée pour le prorata du dernier mois de paie.',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  dateFinContrat?: string;
+
+  @ApiPropertyOptional({
     enum: STATUT_EMPLOYE,
     default: STATUT_EMPLOYE.actif,
     example: STATUT_EMPLOYE.actif,
