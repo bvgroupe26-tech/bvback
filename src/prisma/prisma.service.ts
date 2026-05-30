@@ -18,6 +18,7 @@ const SOFT_DELETE_MODELS = new Set([
   'BudgetDepense',
   'DocumentRh',
   'Notification',
+  'PushSubscription',
 ]);
 
 function withActiveOnly(

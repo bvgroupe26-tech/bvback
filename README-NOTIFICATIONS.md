@@ -127,13 +127,89 @@ function getNotificationLink(n: Notification): string | null {
 
 ---
 
+## Web Push (notifications système navigateur)
+
+En plus des notifications in-app, un **push système** (style WhatsApp) est envoyé en parallèle si l'utilisateur s'est abonné.
+
+### Routes push
+
+| Méthode | Route | Auth | Description |
+|---------|-------|------|-------------|
+| `GET` | `/push/vapid-public-key` | Publique | Clé VAPID pour `PushManager.subscribe()` |
+| `POST` | `/push/subscribe` | JWT | Enregistrer une subscription navigateur |
+| `DELETE` | `/push/unsubscribe` | JWT | Retirer une subscription |
+
+### Configuration `.env`
+
+```env
+VAPID_PUBLIC_KEY="..."
+VAPID_PRIVATE_KEY="..."
+VAPID_MAILTO="mailto:contact@bvgroupe.com"
+```
+
+Générer de nouvelles clés :
+
+```bash
+npm run vapid:generate
+```
+
+### Payload push (JSON)
+
+```json
+{
+  "title": "Demande d'absence acceptée",
+  "body": "Votre demande du 04/08 au 15/08...",
+  "tag": "absence-12",
+  "url": "/leaves",
+  "icon": "/icons/icon-192.png"
+}
+```
+
+### Frontend (Service Worker)
+
+```typescript
+// 1. Récupérer la clé VAPID
+const { data } = await fetch('/api/push/vapid-public-key').then(r => r.json());
+const publicKey = data.publicKey;
+
+// 2. S'abonner après login
+const registration = await navigator.serviceWorker.ready;
+const subscription = await registration.pushManager.subscribe({
+  userVisibleOnly: true,
+  applicationServerKey: urlBase64ToUint8Array(publicKey),
+});
+
+await api.post('/push/subscribe', subscription.toJSON());
+
+// 3. Service worker — afficher la notification
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() ?? {};
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      tag: data.tag,
+      icon: data.icon,
+      data: { url: data.url },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(event.notification.data.url));
+});
+```
+
+---
+
 ## Migration base de données
 
 ```bash
 npx prisma migrate deploy
 ```
 
-Migration : `20260530140000_notifications_centralisees`
+Migration : `20260530140000_notifications_centralisees`  
+Migration push : `20260530210000_push_subscriptions`
 
 ---
 

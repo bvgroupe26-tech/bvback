@@ -18,6 +18,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ActiviteModule } from './modules/activite/activite.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { PushNotificationsModule } from './modules/push-notifications/push-notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SchedulerAppModule } from './modules/scheduler/scheduler.module';
 
@@ -40,6 +41,7 @@ import { SchedulerAppModule } from './modules/scheduler/scheduler.module';
     BudgetModule,
     DocumentsModule,
     NotificationsModule,
+    PushNotificationsModule,
     PublicModule,
   ],
   providers: [

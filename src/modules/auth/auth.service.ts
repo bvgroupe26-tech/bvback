@@ -14,12 +14,15 @@ import { ActiviteService } from '../activite/activite.service';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
+import { RefreshTokenService } from './refresh-token.service';
 import {
+  AuthLoginResult,
   AuthTokenResponse,
   JwtPayload,
   UserMePayload,
   UserPayload,
 } from './types/auth.types';
+import { ActiveSessionDto, SessionMeta } from './types/session.types';
 import { omitPasswordHash } from './utils/omit-password.util';
 
 @Injectable()
@@ -32,6 +35,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly activiteService: ActiviteService,
+    private readonly refreshTokenService: RefreshTokenService,
   ) {}
 
   async validateUser(email: string, password: string): Promise<User | null> {
@@ -52,26 +56,15 @@ export class AuthService {
     return user;
   }
 
-  async login(user: UserPayload): Promise<AuthTokenResponse> {
+  async login(user: UserPayload, meta: SessionMeta): Promise<AuthLoginResult> {
     await this.activiteService.log('connexion', `Connexion de ${user.email}`, null, {
       role: user.role,
     });
 
-    const payload: JwtPayload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      nom: user.nom,
-      prenom: user.prenom,
-    };
-
-    return {
-      access_token: await this.jwtService.signAsync(payload),
-      user: await this.enrichUserProfile(user),
-    };
+    return this.issueTokens(user, meta);
   }
 
-  async register(dto: RegisterDto): Promise<AuthTokenResponse> {
+  async register(dto: RegisterDto, meta: SessionMeta): Promise<AuthLoginResult> {
     this.assertRegistrationAllowed();
     this.assertRoleNotAdmin(dto.role);
 
@@ -97,7 +90,7 @@ export class AuthService {
       );
     }
 
-    return this.login(omitPasswordHash(user));
+    return this.login(omitPasswordHash(user), meta);
   }
 
   async getMe(userId: number): Promise<UserMePayload> {
@@ -143,7 +136,10 @@ export class AuthService {
     };
   }
 
-  async registerEmployee(dto: RegisterEmployeeDto): Promise<AuthTokenResponse> {
+  async registerEmployee(
+    dto: RegisterEmployeeDto,
+    meta: SessionMeta,
+  ): Promise<AuthLoginResult> {
     const existing = await this.usersService.findByEmail(dto.email);
 
     if (existing) {
@@ -202,9 +198,10 @@ export class AuthService {
       );
     }
 
-    return this.login(omitPasswordHash(user));
+    return this.login(omitPasswordHash(user), meta);
   }
 
+  /** @deprecated Préférer POST /auth/refresh (cookie HttpOnly). */
   async refreshToken(userId: number): Promise<AuthTokenResponse> {
     const user = await this.usersService.findById(userId);
 
@@ -212,6 +209,80 @@ export class AuthService {
       throw new UnauthorizedException('Utilisateur introuvable');
     }
 
+    const accessToken = await this.signAccessToken({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      nom: user.nom,
+      prenom: user.prenom,
+    });
+
+    return {
+      accessToken,
+      access_token: accessToken,
+      user: await this.enrichUserProfile(omitPasswordHash(user)),
+    };
+  }
+
+  async refreshFromCookie(
+    refreshToken: string,
+    meta: SessionMeta,
+  ): Promise<AuthLoginResult> {
+    const { userId, refreshToken: newRefreshToken } =
+      await this.refreshTokenService.rotate(refreshToken, meta);
+
+    const user = await this.usersService.findById(userId);
+
+    if (!user) {
+      throw new UnauthorizedException('Utilisateur introuvable');
+    }
+
+    const accessToken = await this.signAccessToken({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      nom: user.nom,
+      prenom: user.prenom,
+    });
+
+    return {
+      accessToken,
+      access_token: accessToken,
+      user: await this.enrichUserProfile(omitPasswordHash(user)),
+      refreshToken: newRefreshToken,
+    };
+  }
+
+  async logoutFromCookie(refreshToken: string | undefined): Promise<void> {
+    if (refreshToken) {
+      await this.refreshTokenService.revokeByToken(refreshToken);
+    }
+  }
+
+  async logoutAll(userId: number): Promise<{ revoked: number }> {
+    const revoked = await this.refreshTokenService.revokeAllForUser(userId);
+    return { revoked };
+  }
+
+  async listSessions(
+    userId: number,
+    currentRefreshToken?: string,
+  ): Promise<ActiveSessionDto[]> {
+    const currentTokenId = currentRefreshToken
+      ? this.refreshTokenService.parseTokenId(currentRefreshToken)
+      : null;
+
+    return this.refreshTokenService.listActiveSessions(userId, currentTokenId);
+  }
+
+  hashPassword(password: string): Promise<string> {
+    return bcrypt.hash(password, this.bcryptRounds);
+  }
+
+  private async issueTokens(
+    user: UserPayload,
+    meta: SessionMeta,
+  ): Promise<AuthLoginResult> {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -220,14 +291,19 @@ export class AuthService {
       prenom: user.prenom,
     };
 
+    const accessToken = await this.signAccessToken(payload);
+    const refreshToken = await this.refreshTokenService.create(user.id, meta);
+
     return {
-      access_token: await this.jwtService.signAsync(payload),
-      user: await this.enrichUserProfile(omitPasswordHash(user)),
+      accessToken,
+      access_token: accessToken,
+      user: await this.enrichUserProfile(user),
+      refreshToken,
     };
   }
 
-  hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, this.bcryptRounds);
+  private signAccessToken(payload: JwtPayload): Promise<string> {
+    return this.jwtService.signAsync(payload);
   }
 
   private formatMatricule(id: number): string {

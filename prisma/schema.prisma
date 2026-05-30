@@ -352,6 +352,8 @@ model User {
   deletedAt    DateTime?
 
   notifications Notification[]
+  pushSubscriptions PushSubscription[]
+  refreshTokens   RefreshToken[]
 
   @@index([email])
   @@map("users")
@@ -447,4 +449,36 @@ model Notification {
   @@index([userId])
   @@index([createdAt(sort: Desc)])
   @@map("notifications")
+}
+
+model PushSubscription {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  endpoint  String   @unique
+  keys      Json
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model RefreshToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  tokenHash  String
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
 }

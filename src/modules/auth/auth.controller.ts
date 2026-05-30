@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -6,6 +16,8 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import type { Request, Response } from 'express';
 import {
   ApiBadRequestResponse,
   ApiAuthResponses,
@@ -13,18 +25,28 @@ import {
   ApiCreatedDataResponse,
 } from '../../common/swagger/api-responses.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { REFRESH_TOKEN_COOKIE } from './constants/auth-cookies.constant';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
-import { AuthTokenResponse, UserPayload } from './types/auth.types';
+import { AuthLoginResult, AuthTokenResponse, UserPayload } from './types/auth.types';
+import { ActiveSessionDto } from './types/session.types';
+import {
+  clearRefreshTokenCookie,
+  setRefreshTokenCookie,
+} from './utils/auth-cookie.util';
+import { extractSessionMeta } from './utils/session-meta.util';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly configService: ConfigService,
+  ) {}
 
   @Post('login')
   @Public()
@@ -32,17 +54,55 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @ApiOperation({
     summary: 'Connexion',
-    description: 'Authentification par email et mot de passe. Retourne un JWT valide 7 jours.',
+    description:
+      'Authentification par email et mot de passe. Retourne un access token (15 min) et place un refresh token HttpOnly en cookie.',
   })
   @ApiBody({ type: LoginDto })
-  @ApiOkDataResponse('JWT et profil utilisateur')
+  @ApiOkDataResponse('Access token et profil utilisateur')
   @ApiResponse({ status: 401, description: 'Identifiants invalides' })
   @ApiBadRequestResponse()
-  login(
+  async login(
     @Body() _loginDto: LoginDto,
     @CurrentUser() user: UserPayload,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
-    return this.authService.login(user);
+    return this.respondWithAuth(
+      this.authService.login(user, extractSessionMeta(req)),
+      res,
+    );
+  }
+
+  @Post('refresh')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Renouveler la session (cookie)',
+    description:
+      'Lit le refresh token HttpOnly, effectue une rotation et retourne un nouvel access token.',
+  })
+  @ApiOkDataResponse('Nouvel access token')
+  @ApiResponse({ status: 401, description: 'Refresh token invalide ou révoqué' })
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthTokenResponse> {
+    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+    if (!refreshToken) {
+      clearRefreshTokenCookie(res, this.configService);
+      throw new UnauthorizedException('Refresh token manquant');
+    }
+
+    try {
+      return await this.respondWithAuth(
+        this.authService.refreshFromCookie(refreshToken, extractSessionMeta(req)),
+        res,
+      );
+    } catch (error) {
+      clearRefreshTokenCookie(res, this.configService);
+      throw error;
+    }
   }
 
   @Post('logout')
@@ -50,11 +110,54 @@ export class AuthController {
   @HttpCode(200)
   @ApiOperation({
     summary: 'Déconnexion',
-    description: 'JWT stateless — confirmation côté client (suppression du token).',
+    description: 'Révoque le refresh token courant et efface le cookie HttpOnly.',
   })
   @ApiOkDataResponse('Accusé de déconnexion')
-  logout(): { ok: true } {
+  async logout(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ok: true }> {
+    await this.authService.logoutFromCookie(
+      req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined,
+    );
+    clearRefreshTokenCookie(res, this.configService);
     return { ok: true };
+  }
+
+  @Post('logout-all')
+  @HttpCode(200)
+  @ApiBearerAuth('JWT')
+  @ApiOperation({
+    summary: 'Déconnexion de tous les appareils',
+    description: 'Révoque toutes les sessions refresh token de l\'utilisateur connecté.',
+  })
+  @ApiOkDataResponse('Nombre de sessions révoquées')
+  @ApiAuthResponses()
+  async logoutAll(
+    @CurrentUser() user: UserPayload,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ ok: true; revoked: number }> {
+    const { revoked } = await this.authService.logoutAll(user.id);
+    clearRefreshTokenCookie(res, this.configService);
+    return { ok: true, revoked };
+  }
+
+  @Get('sessions')
+  @ApiBearerAuth('JWT')
+  @ApiOperation({
+    summary: 'Sessions actives',
+    description: 'Liste les refresh tokens actifs (appareils connectés) de l\'utilisateur.',
+  })
+  @ApiOkDataResponse('Liste des sessions')
+  @ApiAuthResponses()
+  listSessions(
+    @CurrentUser() user: UserPayload,
+    @Req() req: Request,
+  ): Promise<ActiveSessionDto[]> {
+    return this.authService.listSessions(
+      user.id,
+      req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined,
+    );
   }
 
   @Post('register')
@@ -65,12 +168,19 @@ export class AuthController {
     description: 'Création de compte RH ou manager uniquement (pas de rôle admin).',
   })
   @ApiBody({ type: RegisterDto })
-  @ApiCreatedDataResponse('Compte créé avec JWT')
+  @ApiCreatedDataResponse('Compte créé avec tokens')
   @ApiResponse({ status: 403, description: 'Inscription désactivée ou rôle interdit' })
   @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
   @ApiBadRequestResponse()
-  register(@Body() dto: RegisterDto): Promise<AuthTokenResponse> {
-    return this.authService.register(dto);
+  async register(
+    @Body() dto: RegisterDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AuthTokenResponse> {
+    return this.respondWithAuth(
+      this.authService.register(dto, extractSessionMeta(req)),
+      res,
+    );
   }
 
   @Post('register-employee')
@@ -79,26 +189,33 @@ export class AuthController {
   @ApiOperation({
     summary: 'Inscription employé',
     description:
-      'Crée un compte utilisateur (rôle employee) ET une fiche employé RH liée. Retourne un JWT.',
+      'Crée un compte utilisateur (rôle employee) ET une fiche employé RH liée.',
   })
   @ApiBody({ type: RegisterEmployeeDto })
-  @ApiCreatedDataResponse('Compte employé créé avec JWT')
+  @ApiCreatedDataResponse('Compte employé créé avec tokens')
   @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
   @ApiBadRequestResponse()
-  registerEmployee(
+  async registerEmployee(
     @Body() dto: RegisterEmployeeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
-    return this.authService.registerEmployee(dto);
+    return this.respondWithAuth(
+      this.authService.registerEmployee(dto, extractSessionMeta(req)),
+      res,
+    );
   }
 
+  /** @deprecated Préférer POST /auth/refresh (cookie HttpOnly). */
   @Post('refresh-token')
   @HttpCode(200)
   @ApiBearerAuth('JWT')
   @ApiOperation({
-    summary: 'Rafraîchir le token',
-    description: 'Génère un nouveau JWT à partir du token courant encore valide.',
+    summary: 'Rafraîchir le token (legacy)',
+    description:
+      'Génère un nouvel access token à partir du JWT courant encore valide. Préférer POST /auth/refresh.',
   })
-  @ApiOkDataResponse('Nouveau JWT')
+  @ApiOkDataResponse('Nouvel access token')
   @ApiAuthResponses()
   refreshToken(@CurrentUser() user: UserPayload): Promise<AuthTokenResponse> {
     return this.authService.refreshToken(user.id);
@@ -111,5 +228,16 @@ export class AuthController {
   @ApiAuthResponses()
   getMe(@CurrentUser() user: UserPayload): Promise<UserPayload> {
     return this.authService.getMe(user.id);
+  }
+
+  private respondWithAuth(
+    resultPromise: Promise<AuthLoginResult>,
+    res: Response,
+  ): Promise<AuthTokenResponse> {
+    return resultPromise.then((result) => {
+      setRefreshTokenCookie(res, result.refreshToken, this.configService);
+      const { refreshToken: _refreshToken, ...body } = result;
+      return body;
+    });
   }
 }

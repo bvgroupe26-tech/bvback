@@ -20,6 +20,13 @@ export interface JwtPayload {
 }
 
 export interface AuthTokenResponse {
+  accessToken: string;
+  /** @deprecated Utiliser accessToken — conservé pour compatibilité clients existants */
   access_token: string;
   user: UserMePayload;
+}
+
+/** Résultat interne incluant le refresh token (cookie uniquement, jamais exposé au client). */
+export interface AuthLoginResult extends AuthTokenResponse {
+  refreshToken: string;
 }

@@ -11,10 +11,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     configService: ConfigService,
     private readonly authService: AuthService,
   ) {
-    const secret = configService.get<string>('AUTH_SECRET');
+    const secret =
+      configService.get<string>('ACCESS_TOKEN_SECRET') ??
+      configService.get<string>('AUTH_SECRET');
 
     if (!secret) {
-      throw new Error('AUTH_SECRET est requis dans les variables d\'environnement');
+      throw new Error(
+        'ACCESS_TOKEN_SECRET ou AUTH_SECRET est requis dans les variables d\'environnement',
+      );
     }
 
     super({

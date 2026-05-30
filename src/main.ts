@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
@@ -11,6 +12,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api');
+
+  app.use(cookieParser());
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -62,7 +65,8 @@ async function bootstrap(): Promise<void> {
     .addTag('budget', 'Budget RH')
     .addTag('dashboard', 'Tableau de bord')
     .addTag('statistiques', 'Synthèses statistiques')
-    .addTag('activite', 'Journal d\'activité')
+    .addTag('notifications', 'Notifications in-app (admin + employé)')
+    .addTag('push', 'Web Push Notifications (VAPID)')
     .addTag('public', 'Endpoints publics (sans JWT)')
     .addTag('example', 'Exemples de guards')
     .build();

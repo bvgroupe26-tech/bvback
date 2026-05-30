@@ -6,6 +6,7 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RefreshTokenService } from './refresh-token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 
@@ -17,23 +18,36 @@ import { LocalStrategy } from './strategies/local.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const secret = configService.get<string>('AUTH_SECRET');
+        const secret =
+          configService.get<string>('ACCESS_TOKEN_SECRET') ??
+          configService.get<string>('AUTH_SECRET');
 
         if (!secret) {
           throw new Error(
-            'AUTH_SECRET est requis dans les variables d\'environnement',
+            'ACCESS_TOKEN_SECRET ou AUTH_SECRET est requis dans les variables d\'environnement',
           );
         }
 
         return {
           secret,
-          signOptions: { expiresIn: '7d' },
+          signOptions: {
+            expiresIn: configService.get<string>(
+              'ACCESS_TOKEN_EXPIRES_IN',
+              '15m',
+            ) as `${number}${'s' | 'm' | 'h' | 'd'}`,
+          },
         };
       },
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LocalStrategy, JwtStrategy, JwtAuthGuard],
-  exports: [AuthService, JwtModule, JwtAuthGuard],
+  providers: [
+    AuthService,
+    RefreshTokenService,
+    LocalStrategy,
+    JwtStrategy,
+    JwtAuthGuard,
+  ],
+  exports: [AuthService, RefreshTokenService, JwtModule, JwtAuthGuard],
 })
 export class AuthModule {}
