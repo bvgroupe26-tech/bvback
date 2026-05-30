@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Interval } from '@nestjs/schedule';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
- * Tâche périodique : lit la base à intervalle fixe (défaut 2 min).
+ * Lecture périodique de la base — chaque jour à 12h00 (fuseau configurable).
  * Désactiver : ENABLE_PERIODIC_DB_TASK=0 dans .env
  */
 @Injectable()
@@ -16,8 +16,11 @@ export class PeriodicDbTask {
     private readonly config: ConfigService,
   ) {}
 
-  /** 120 000 ms = 2 minutes */
-  @Interval(120000)
+  /** Tous les jours à 12:00 — PERIODIC_DB_TASK_TIMEZONE (défaut Africa/Douala) */
+  @Cron(CronExpression.EVERY_DAY_AT_NOON, {
+    name: 'periodic-db-read',
+    timeZone: process.env.PERIODIC_DB_TASK_TIMEZONE ?? 'Africa/Douala',
+  })
   async run(): Promise<void> {
     const enabled = this.config.get<string>('ENABLE_PERIODIC_DB_TASK', '1');
     if (enabled === '0' || enabled === 'false') {
