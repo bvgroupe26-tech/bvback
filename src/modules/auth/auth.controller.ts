@@ -40,6 +40,7 @@ import {
   setRefreshTokenCookie,
 } from './utils/auth-cookie.util';
 import { extractSessionMeta } from './utils/session-meta.util';
+import { agentLog } from '../../common/debug/agent-log.util';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -72,6 +73,19 @@ export class AuthController {
       sameSite: 'none',
       maxAge: REFRESH_TOKEN_MAX_AGE_MS,
     });
+    // #region agent log
+    agentLog(
+      'auth.controller.ts:login',
+      'login cookie set',
+      {
+        userId: user.id,
+        refreshTokenLength: result.refreshToken?.length ?? 0,
+        origin: req.headers.origin ?? null,
+        frontendUrl: process.env.FRONTEND_URL ?? null,
+      },
+      'H-C',
+    );
+    // #endregion
     const { refreshToken: _refreshToken, ...body } = result;
     return body;
   }
@@ -90,11 +104,40 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
+    const cookieKeys = Object.keys(req.cookies ?? {});
+    const hasRefreshCookie = Boolean(req.cookies?.[REFRESH_TOKEN_COOKIE]);
+    // #region agent log
+    agentLog(
+      'auth.controller.ts:refresh:entry',
+      'refresh request',
+      {
+        cookieKeys,
+        hasRefreshCookie,
+        origin: req.headers.origin ?? null,
+        referer: req.headers.referer ?? null,
+        frontendUrl: process.env.FRONTEND_URL ?? null,
+        originMatchesFrontend:
+          Boolean(req.headers.origin) &&
+          Boolean(process.env.FRONTEND_URL) &&
+          req.headers.origin === process.env.FRONTEND_URL,
+        hasCookieHeader: Boolean(req.headers.cookie),
+      },
+      'H-A',
+    );
+    // #endregion
     console.log('cookies reçus:', req.cookies);
 
     const token = req.cookies[REFRESH_TOKEN_COOKIE] as string | undefined;
 
     if (!token) {
+      // #region agent log
+      agentLog(
+        'auth.controller.ts:refresh:no-token',
+        '401 refresh token manquant',
+        { cookieKeys, hasCookieHeader: Boolean(req.headers.cookie) },
+        'H-A',
+      );
+      // #endregion
       clearRefreshTokenCookie(res);
       throw new UnauthorizedException('Refresh token manquant');
     }
@@ -111,8 +154,28 @@ export class AuthController {
         maxAge: REFRESH_TOKEN_MAX_AGE_MS,
       });
       const { refreshToken: _refreshToken, ...body } = result;
+      // #region agent log
+      agentLog(
+        'auth.controller.ts:refresh:success',
+        'refresh ok',
+        { userId: result.user.id },
+        'H-B',
+      );
+      // #endregion
       return body;
     } catch (error) {
+      // #region agent log
+      agentLog(
+        'auth.controller.ts:refresh:error',
+        'refresh failed in service',
+        {
+          errorName: error instanceof Error ? error.name : 'unknown',
+          errorMessage:
+            error instanceof Error ? error.message : String(error),
+        },
+        'H-B',
+      );
+      // #endregion
       clearRefreshTokenCookie(res);
       throw error;
     }
@@ -240,6 +303,18 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
     @Headers('authorization') authorization?: string,
   ): Promise<AuthTokenResponse> {
+    // #region agent log
+    agentLog(
+      'auth.controller.ts:refresh-token',
+      'refresh-token alias hit',
+      {
+        hasRefreshCookie: Boolean(req.cookies?.[REFRESH_TOKEN_COOKIE]),
+        hasBearer: Boolean(authorization?.startsWith('Bearer ')),
+        cookieKeys: Object.keys(req.cookies ?? {}),
+      },
+      'H-D',
+    );
+    // #endregion
     if (req.cookies[REFRESH_TOKEN_COOKIE]) {
       return this.refresh(req, res);
     }

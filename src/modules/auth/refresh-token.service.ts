@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActiveSessionDto, SessionMeta } from './types/session.types';
+import { agentLog } from '../../common/debug/agent-log.util';
 
 export interface RefreshRotationResult {
   userId: number;
@@ -102,6 +103,7 @@ export class RefreshTokenService {
     meta: SessionMeta,
   ): Promise<RefreshRotationResult> {
     let payload: RefreshJwtPayload;
+    let failReason: string | null = null;
 
     try {
       payload = await this.jwtService.verifyAsync<RefreshJwtPayload>(
@@ -109,10 +111,26 @@ export class RefreshTokenService {
         { secret: this.getRefreshSecret() },
       );
     } catch {
+      failReason = 'jwt_verify_failed';
+      // #region agent log
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, hasRefreshSecret: Boolean(this.getRefreshSecret()) },
+        'H-B',
+      );
+      // #endregion
       throw new UnauthorizedException('Refresh token invalide ou expiré');
     }
 
     if (payload.type !== 'refresh' || !payload.sub || !payload.tid) {
+      failReason = 'invalid_payload';
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, type: payload.type, sub: payload.sub, tid: payload.tid },
+        'H-B',
+      );
       throw new UnauthorizedException('Refresh token invalide');
     }
 
@@ -121,10 +139,24 @@ export class RefreshTokenService {
     });
 
     if (!record || record.userId !== payload.sub) {
+      failReason = 'record_not_found_or_user_mismatch';
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, tid: payload.tid, sub: payload.sub, recordFound: Boolean(record) },
+        'H-B',
+      );
       throw new UnauthorizedException('Refresh token invalide');
     }
 
     if (record.revokedAt) {
+      failReason = 'token_revoked_reuse';
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, userId: record.userId, tid: record.id },
+        'H-E',
+      );
       await this.revokeAllForUser(record.userId);
       this.logger.warn(
         `Réutilisation d'un refresh token révoqué — userId=${record.userId}`,
@@ -135,12 +167,26 @@ export class RefreshTokenService {
     }
 
     if (record.expiresAt < new Date()) {
+      failReason = 'token_expired';
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, expiresAt: record.expiresAt.toISOString() },
+        'H-B',
+      );
       throw new UnauthorizedException('Refresh token expiré');
     }
 
     const hashValid = await bcrypt.compare(refreshToken, record.tokenHash);
 
     if (!hashValid) {
+      failReason = 'hash_mismatch';
+      agentLog(
+        'refresh-token.service.ts:rotate',
+        'rotate failed',
+        { failReason, tid: record.id },
+        'H-B',
+      );
       throw new UnauthorizedException('Refresh token invalide');
     }
 
@@ -150,6 +196,15 @@ export class RefreshTokenService {
     });
 
     const newRefreshToken = await this.create(payload.sub, meta);
+
+    // #region agent log
+    agentLog(
+      'refresh-token.service.ts:rotate',
+      'rotate success',
+      { userId: payload.sub, tid: record.id },
+      'H-B',
+    );
+    // #endregion
 
     return {
       userId: payload.sub,
