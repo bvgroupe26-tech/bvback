@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Post,
   Req,
@@ -16,7 +17,6 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import {
   ApiBadRequestResponse,
@@ -36,6 +36,7 @@ import { AuthLoginResult, AuthTokenResponse, UserPayload } from './types/auth.ty
 import { ActiveSessionDto } from './types/session.types';
 import {
   clearRefreshTokenCookie,
+  REFRESH_TOKEN_MAX_AGE_MS,
   setRefreshTokenCookie,
 } from './utils/auth-cookie.util';
 import { extractSessionMeta } from './utils/session-meta.util';
@@ -43,10 +44,7 @@ import { extractSessionMeta } from './utils/session-meta.util';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('login')
   @Public()
@@ -67,10 +65,15 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
-    return this.respondWithAuth(
-      this.authService.login(user, extractSessionMeta(req)),
-      res,
-    );
+    const result = await this.authService.login(user, extractSessionMeta(req));
+    res.cookie(REFRESH_TOKEN_COOKIE, result.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: REFRESH_TOKEN_MAX_AGE_MS,
+    });
+    const { refreshToken: _refreshToken, ...body } = result;
+    return body;
   }
 
   @Post('refresh')
@@ -79,7 +82,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Renouveler la session (cookie)',
     description:
-      'Lit le refresh token HttpOnly, effectue une rotation et retourne un nouvel access token.',
+      'Lit le refresh token HttpOnly depuis le cookie `refresh_token`, effectue une rotation et retourne un nouvel access token.',
   })
   @ApiOkDataResponse('Nouvel access token')
   @ApiResponse({ status: 401, description: 'Refresh token invalide ou révoqué' })
@@ -87,20 +90,30 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
-    const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined;
+    console.log('cookies reçus:', req.cookies);
 
-    if (!refreshToken) {
-      clearRefreshTokenCookie(res, this.configService);
+    const token = req.cookies[REFRESH_TOKEN_COOKIE] as string | undefined;
+
+    if (!token) {
+      clearRefreshTokenCookie(res);
       throw new UnauthorizedException('Refresh token manquant');
     }
 
     try {
-      return await this.respondWithAuth(
-        this.authService.refreshFromCookie(refreshToken, extractSessionMeta(req)),
-        res,
+      const result = await this.authService.refreshFromCookie(
+        token,
+        extractSessionMeta(req),
       );
+      res.cookie(REFRESH_TOKEN_COOKIE, result.refreshToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: REFRESH_TOKEN_MAX_AGE_MS,
+      });
+      const { refreshToken: _refreshToken, ...body } = result;
+      return body;
     } catch (error) {
-      clearRefreshTokenCookie(res, this.configService);
+      clearRefreshTokenCookie(res);
       throw error;
     }
   }
@@ -118,9 +131,9 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true }> {
     await this.authService.logoutFromCookie(
-      req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined,
+      req.cookies[REFRESH_TOKEN_COOKIE] as string | undefined,
     );
-    clearRefreshTokenCookie(res, this.configService);
+    clearRefreshTokenCookie(res);
     return { ok: true };
   }
 
@@ -138,7 +151,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ ok: true; revoked: number }> {
     const { revoked } = await this.authService.logoutAll(user.id);
-    clearRefreshTokenCookie(res, this.configService);
+    clearRefreshTokenCookie(res);
     return { ok: true, revoked };
   }
 
@@ -156,7 +169,7 @@ export class AuthController {
   ): Promise<ActiveSessionDto[]> {
     return this.authService.listSessions(
       user.id,
-      req.cookies?.[REFRESH_TOKEN_COOKIE] as string | undefined,
+      req.cookies[REFRESH_TOKEN_COOKIE] as string | undefined,
     );
   }
 
@@ -206,19 +219,39 @@ export class AuthController {
     );
   }
 
-  /** @deprecated Préférer POST /auth/refresh (cookie HttpOnly). */
+  /**
+   * Alias de POST /auth/refresh (cookie HttpOnly).
+   * Si un Bearer est envoyé sans cookie, renouvelle l'access token (legacy).
+   */
   @Post('refresh-token')
+  @Public()
   @HttpCode(200)
   @ApiBearerAuth('JWT')
   @ApiOperation({
-    summary: 'Rafraîchir le token (legacy)',
+    summary: 'Rafraîchir la session (alias)',
     description:
-      'Génère un nouvel access token à partir du JWT courant encore valide. Préférer POST /auth/refresh.',
+      'Préférer POST /auth/refresh. Avec cookie `refresh_token` : rotation refresh. ' +
+      'Sans cookie mais avec Bearer valide : nouvel access token (legacy).',
   })
   @ApiOkDataResponse('Nouvel access token')
-  @ApiAuthResponses()
-  refreshToken(@CurrentUser() user: UserPayload): Promise<AuthTokenResponse> {
-    return this.authService.refreshToken(user.id);
+  @ApiResponse({ status: 401, description: 'Cookie ou Bearer manquant / invalide' })
+  async refreshToken(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Headers('authorization') authorization?: string,
+  ): Promise<AuthTokenResponse> {
+    if (req.cookies[REFRESH_TOKEN_COOKIE]) {
+      return this.refresh(req, res);
+    }
+
+    const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!bearer) {
+      throw new UnauthorizedException(
+        'Refresh token manquant — utilisez POST /auth/refresh avec credentials: include',
+      );
+    }
+
+    return this.authService.refreshFromBearer(bearer);
   }
 
   @Get('me')
@@ -235,7 +268,7 @@ export class AuthController {
     res: Response,
   ): Promise<AuthTokenResponse> {
     return resultPromise.then((result) => {
-      setRefreshTokenCookie(res, result.refreshToken, this.configService);
+      setRefreshTokenCookie(res, result.refreshToken);
       const { refreshToken: _refreshToken, ...body } = result;
       return body;
     });

@@ -224,6 +224,19 @@ export class AuthService {
     };
   }
 
+  /** Legacy : nouvel access token à partir d'un Bearer encore valide (sans rotation refresh). */
+  async refreshFromBearer(bearerToken: string): Promise<AuthTokenResponse> {
+    let payload: JwtPayload;
+
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(bearerToken);
+    } catch {
+      throw new UnauthorizedException('Access token invalide ou expiré');
+    }
+
+    return this.refreshToken(payload.sub);
+  }
+
   async refreshFromCookie(
     refreshToken: string,
     meta: SessionMeta,

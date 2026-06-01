@@ -2,8 +2,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { cookieParserMiddleware } from './bootstrap/cookie-parser.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { SnakeToCamelInterceptor } from './common/interceptors/snake-to-camel.interceptor';
@@ -11,9 +11,21 @@ import { SnakeToCamelInterceptor } from './common/interceptors/snake-to-camel.in
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
+  // Proxy Render / Vercel — requis pour cookies Secure derrière reverse proxy
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
+
+  // AVANT pipes, interceptors, guards et routes
+  app.use(cookieParserMiddleware());
+
   app.setGlobalPrefix('api');
 
-  app.use(cookieParser());
+  app.enableCors({
+    origin: process.env.FRONTEND_URL,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -29,13 +41,14 @@ async function bootstrap(): Promise<void> {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
-
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
+
+  if (!process.env.FRONTEND_URL) {
+    console.warn(
+      '[bootstrap] FRONTEND_URL non défini — CORS et cookies cross-origin peuvent échouer',
+    );
+  }
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('BV Groupe RH API')
