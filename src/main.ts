@@ -1,6 +1,8 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -19,7 +21,7 @@ function parseAllowedOrigins(raw: string | undefined): string[] {
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Proxy Render / Vercel — requis pour cookies Secure derrière reverse proxy
   const expressApp = app.getHttpAdapter().getInstance();
@@ -27,6 +29,11 @@ async function bootstrap(): Promise<void> {
 
   // AVANT pipes, interceptors, guards et routes
   app.use(cookieParserMiddleware());
+
+  // Fichiers uploadés (avatars, CV…) — hors préfixe /api, sans JWT
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   app.setGlobalPrefix('api');
 
