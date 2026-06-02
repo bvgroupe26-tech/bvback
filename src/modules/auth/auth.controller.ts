@@ -54,7 +54,7 @@ export class AuthController {
   @ApiOperation({
     summary: 'Connexion',
     description:
-      'Authentification par email et mot de passe. Retourne un access token (15 min) et place un refresh token HttpOnly en cookie.',
+      'Authentification par email et mot de passe. Retourne un access token (7 jours) et place un refresh token HttpOnly en cookie.',
   })
   @ApiBody({ type: LoginDto })
   @ApiOkDataResponse('Access token et profil utilisateur')
