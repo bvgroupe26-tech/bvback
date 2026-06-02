@@ -1,0 +1,13 @@
+# Optionnel — si tu recrées le service via Blueprint Render.
+# Service existant : garde la commande par défaut npm install && npm run build
+
+services:
+  - type: web
+    name: bv-groupe-rh-api
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
