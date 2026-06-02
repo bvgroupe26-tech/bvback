@@ -9,6 +9,15 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { SnakeToCamelInterceptor } from './common/interceptors/snake-to-camel.interceptor';
 
+function parseAllowedOrigins(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[\n,;]/)
+    .map((v) => v.trim().replace(/^['"`]|['"`]$/g, ''))
+    .filter(Boolean)
+    .map((v) => v.replace(/\/+$/, ''));
+}
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
@@ -25,9 +34,19 @@ async function bootstrap(): Promise<void> {
 
   const configService = app.get(ConfigService);
   const frontendUrl = configService.get<string>('FRONTEND_URL');
+  const allowedOrigins = parseAllowedOrigins(frontendUrl);
 
   app.enableCors({
-    origin: frontendUrl,
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Pas d'origin (curl, server-to-server, healthcheck)
+      if (!origin) return callback(null, true);
+      const normalized = origin.trim().replace(/\/+$/, '');
+      if (allowedOrigins.includes(normalized)) return callback(null, true);
+      return callback(new Error(`CORS origin non autorisée: ${origin}`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -49,10 +68,12 @@ async function bootstrap(): Promise<void> {
 
   const port = configService.get<number>('PORT', 3000);
 
-  if (!frontendUrl) {
+  if (allowedOrigins.length === 0) {
     console.warn(
       '[bootstrap] FRONTEND_URL non défini — CORS et cookies cross-origin peuvent échouer',
     );
+  } else {
+    console.log('[bootstrap] CORS origins autorisées:', allowedOrigins);
   }
 
   const swaggerConfig = new DocumentBuilder()
