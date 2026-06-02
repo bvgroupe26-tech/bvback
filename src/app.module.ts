@@ -13,6 +13,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DeveloppementRhModule } from './modules/developpement-rh/developpement-rh.module';
 import { RecrutementModule } from './modules/recrutement/recrutement.module';
 import { PresencesModule } from './modules/presences/presences.module';
+import { HealthModule } from './modules/health/health.module';
 import { PublicModule } from './modules/public/public.module';
 import { UsersModule } from './modules/users/users.module';
 import { ActiviteModule } from './modules/activite/activite.module';
@@ -42,6 +43,7 @@ import { SchedulerAppModule } from './modules/scheduler/scheduler.module';
     DocumentsModule,
     NotificationsModule,
     PushNotificationsModule,
+    HealthModule,
     PublicModule,
   ],
   providers: [

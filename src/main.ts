@@ -80,6 +80,7 @@ async function bootstrap(): Promise<void> {
     .addTag('statistiques', 'Synthèses statistiques')
     .addTag('notifications', 'Notifications in-app (admin + employé)')
     .addTag('push', 'Web Push Notifications (VAPID)')
+    .addTag('health', 'Ping / uptime (cron, GitHub Actions)')
     .addTag('public', 'Endpoints publics (sans JWT)')
     .addTag('example', 'Exemples de guards')
     .build();
