@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { cookieParserMiddleware } from './bootstrap/cookie-parser.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -20,8 +21,13 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix('api');
 
+  app.use(helmet());
+
+  const configService = app.get(ConfigService);
+  const frontendUrl = configService.get<string>('FRONTEND_URL');
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL,
+    origin: frontendUrl,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -41,10 +47,9 @@ async function bootstrap(): Promise<void> {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT', 3000);
 
-  if (!process.env.FRONTEND_URL) {
+  if (!frontendUrl) {
     console.warn(
       '[bootstrap] FRONTEND_URL non défini — CORS et cookies cross-origin peuvent échouer',
     );
