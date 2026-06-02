@@ -36,7 +36,6 @@ import { AuthLoginResult, AuthTokenResponse, UserPayload } from './types/auth.ty
 import { ActiveSessionDto } from './types/session.types';
 import {
   clearRefreshTokenCookie,
-  REFRESH_TOKEN_MAX_AGE_MS,
   setRefreshTokenCookie,
 } from './utils/auth-cookie.util';
 import { extractSessionMeta } from './utils/session-meta.util';
@@ -67,12 +66,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthTokenResponse> {
     const result = await this.authService.login(user, extractSessionMeta(req));
-    res.cookie(REFRESH_TOKEN_COOKIE, result.refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: REFRESH_TOKEN_MAX_AGE_MS,
-    });
+    setRefreshTokenCookie(res, result.refreshToken);
     // #region agent log
     agentLog(
       'auth.controller.ts:login',
@@ -147,12 +141,7 @@ export class AuthController {
         token,
         extractSessionMeta(req),
       );
-      res.cookie(REFRESH_TOKEN_COOKIE, result.refreshToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: REFRESH_TOKEN_MAX_AGE_MS,
-      });
+      setRefreshTokenCookie(res, result.refreshToken);
       const { refreshToken: _refreshToken, ...body } = result;
       // #region agent log
       agentLog(
