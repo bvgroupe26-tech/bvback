@@ -98,12 +98,20 @@ export class PushNotificationService implements OnModuleInit {
       return { sent: 0, failed: 0 };
     }
 
+    const frontendBase =
+      this.config.get<string>('FRONTEND_URL')?.replace(/\/$/, '') || '';
+    const iconPath = payload.icon || DEFAULT_PUSH_ICON;
+    const icon =
+      iconPath.startsWith('http://') || iconPath.startsWith('https://')
+        ? iconPath
+        : `${frontendBase}${iconPath.startsWith('/') ? iconPath : `/${iconPath}`}`;
+
     const normalized: PushNotificationPayload = {
       title: payload.title,
       body: payload.body.slice(0, 100),
       tag: payload.tag,
       url: payload.url,
-      icon: payload.icon || DEFAULT_PUSH_ICON,
+      icon: icon || DEFAULT_PUSH_ICON,
     };
 
     const body = JSON.stringify(normalized);
