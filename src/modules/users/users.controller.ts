@@ -34,13 +34,13 @@ import { UsersService } from './users.service';
 
 @ApiTags('users')
 @ApiBearerAuth('JWT')
-@Roles('admin')
 @UseInterceptors(ClassSerializerInterceptor)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
+  @Roles('admin', 'rh')
   @ApiOperation({ summary: 'Lister les comptes utilisateurs' })
   @ApiOkDataResponse('Liste des utilisateurs (sans mot de passe)')
   @ApiAuthResponses()
@@ -49,6 +49,7 @@ export class UsersController {
   }
 
   @Get(':id')
+  @Roles('admin', 'rh')
   @ApiOperation({ summary: 'Détail d\'un compte utilisateur' })
   @ApiParam({ name: 'id', type: Number, example: 1, description: 'Identifiant utilisateur' })
   @ApiOkDataResponse('Utilisateur trouvé')
@@ -59,6 +60,7 @@ export class UsersController {
   }
 
   @Post()
+  @Roles('admin')
   @ApiOperation({ summary: 'Créer un compte utilisateur' })
   @ApiBody({ type: CreateUserDto })
   @ApiCreatedDataResponse('Utilisateur créé')
@@ -70,6 +72,7 @@ export class UsersController {
   }
 
   @Put(':id')
+  @Roles('admin')
   @ApiOperation({ summary: 'Mettre à jour un compte utilisateur' })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiBody({ type: UpdateUserDto })
@@ -87,6 +90,7 @@ export class UsersController {
   }
 
   @Post(':id/delete')
+  @Roles('admin')
   @HttpCode(204)
   @ApiOperation({
     summary: 'Archiver un compte utilisateur',

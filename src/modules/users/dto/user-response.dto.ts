@@ -36,9 +36,16 @@ export class UserResponseDto {
   @ApiProperty({
     enum: USER_ROLE,
     example: USER_ROLE.rh,
-    description: 'Rôle attribué (admin, manager ou RH).',
+    description: 'Rôle attribué (admin, manager, RH ou employé).',
   })
   role!: UserRole;
+
+  @Expose()
+  @ApiProperty({
+    example: true,
+    description: 'Compte actif : false = connexion refusée.',
+  })
+  isActive!: boolean;
 
   @Expose()
   @ApiProperty({
