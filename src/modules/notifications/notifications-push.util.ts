@@ -19,8 +19,12 @@ export function buildPushPayload(
     title: titre,
     body: message.slice(0, 100),
     tag: buildPushTag(type, meta, notificationId),
-    url: buildPushUrl(type, meta, recipient),
     icon: DEFAULT_PUSH_ICON,
+    data: {
+      url: buildPushUrl(type, meta, recipient),
+      icon: DEFAULT_PUSH_ICON,
+      tag: buildPushTag(type, meta, notificationId),
+    },
   };
 }
 

@@ -2,8 +2,15 @@ export interface PushNotificationPayload {
   title: string;
   body: string;
   tag: string;
-  url: string;
   icon: string;
+  /** @deprecated Préférer data.url — conservé pour compatibilité sendPush */
+  url?: string;
+  /** Lu par le service worker via event.data.json().data */
+  data?: {
+    url: string;
+    icon: string;
+    tag: string;
+  };
 }
 
 export interface PushSubscriptionKeys {
