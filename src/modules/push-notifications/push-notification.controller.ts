@@ -82,6 +82,19 @@ export class PushNotificationController {
     await this.pushNotificationService.unsubscribe(user.id, dto.endpoint);
   }
 
+  @Get('status')
+  @ApiBearerAuth('JWT')
+  @ApiOperation({
+    summary: 'État push du compte connecté',
+    description:
+      'Nombre d’abonnements en base pour ce userId (diagnostic Postman).',
+  })
+  @ApiOkDataResponse('Diagnostics push')
+  @ApiAuthResponses()
+  getStatus(@CurrentUser() user: UserPayload) {
+    return this.pushNotificationService.getDiagnosticsForUser(user.id);
+  }
+
   @Post('test')
   @ApiBearerAuth('JWT')
   @ApiOperation({

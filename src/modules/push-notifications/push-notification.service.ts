@@ -61,7 +61,7 @@ export class PushNotificationService implements OnModuleInit {
       auth: dto.keys.auth,
     } satisfies Prisma.InputJsonObject;
 
-    return this.prisma.pushSubscription.upsert({
+    const row = await this.prisma.pushSubscription.upsert({
       where: { endpoint: dto.endpoint },
       create: {
         userId,
@@ -74,6 +74,12 @@ export class PushNotificationService implements OnModuleInit {
         deletedAt: null,
       },
     });
+
+    this.logger.log(
+      `Push subscription enregistrée #${row.id} pour user #${userId} (${dto.endpoint.slice(0, 48)}…)`,
+    );
+
+    return row;
   }
 
   async unsubscribe(userId: number, endpoint: string): Promise<void> {
@@ -82,8 +88,61 @@ export class PushNotificationService implements OnModuleInit {
     });
   }
 
-  async sendTestPush(userId: number): Promise<{ sent: number; failed: number }> {
-    return this.sendPush(userId, {
+  async getDiagnosticsForUser(userId: number) {
+    const subscriptions = await this.prisma.pushSubscription.findMany({
+      where: { userId, deletedAt: null },
+      select: { id: true, endpoint: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      userId,
+      vapidConfigured: this.vapidConfigured,
+      subscriptionCount: subscriptions.length,
+      subscriptions: subscriptions.map((s) => ({
+        id: s.id,
+        endpointPreview: `${s.endpoint.slice(0, 42)}…`,
+        createdAt: s.createdAt,
+      })),
+    };
+  }
+
+  async sendTestPush(userId: number): Promise<{
+    sent: number;
+    failed: number;
+    userId: number;
+    vapidConfigured: boolean;
+    subscriptionCount: number;
+    message: string;
+  }> {
+    const subscriptions = await this.prisma.pushSubscription.findMany({
+      where: { userId, deletedAt: null },
+    });
+
+    if (!this.vapidConfigured) {
+      return {
+        sent: 0,
+        failed: 0,
+        userId,
+        vapidConfigured: false,
+        subscriptionCount: subscriptions.length,
+        message:
+          'VAPID non configuré sur Render (VAPID_PRIVATE_KEY, VAPID_MAILTO).',
+      };
+    }
+
+    if (subscriptions.length === 0) {
+      return {
+        sent: 0,
+        failed: 0,
+        userId,
+        vapidConfigured: true,
+        subscriptionCount: 0,
+        message: `Aucun appareil abonné pour userId ${userId}. Ouvrez l'app → Profil → Activer les notifications (même email que ce token), puis GET /push/status.`,
+      };
+    }
+
+    const result = await this.sendPush(userId, {
       title: 'BV Groupe RH — Test',
       body: 'Notification test : les alertes hors application fonctionnent.',
       tag: 'bv-push-test',
@@ -94,6 +153,24 @@ export class PushNotificationService implements OnModuleInit {
         tag: 'bv-push-test',
       },
     });
+
+    let message: string;
+    if (result.sent > 0) {
+      message = `${result.sent} notification(s) envoyée(s). Fermez l'app pour voir l'alerte système.`;
+    } else if (result.failed > 0) {
+      message =
+        'Échec envoi : vérifiez que NEXT_PUBLIC_VAPID_PUBLIC_KEY (Vercel) = VAPID_PUBLIC_KEY (Render).';
+    } else {
+      message = 'Aucun envoi effectué.';
+    }
+
+    return {
+      ...result,
+      userId,
+      vapidConfigured: true,
+      subscriptionCount: subscriptions.length,
+      message,
+    };
   }
 
   async sendPush(
