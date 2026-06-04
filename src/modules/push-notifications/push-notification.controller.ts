@@ -81,4 +81,17 @@ export class PushNotificationController {
   ): Promise<void> {
     await this.pushNotificationService.unsubscribe(user.id, dto.endpoint);
   }
+
+  @Post('test')
+  @ApiBearerAuth('JWT')
+  @ApiOperation({
+    summary: 'Envoyer une notification push de test',
+    description:
+      'Envoie une alerte système sur cet appareil (app fermée possible). Utile pour valider VAPID et l’abonnement.',
+  })
+  @ApiOkDataResponse('Résultat envoi (sent / failed)')
+  @ApiAuthResponses()
+  testPush(@CurrentUser() user: UserPayload) {
+    return this.pushNotificationService.sendTestPush(user.id);
+  }
 }

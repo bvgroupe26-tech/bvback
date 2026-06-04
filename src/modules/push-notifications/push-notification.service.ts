@@ -82,19 +82,39 @@ export class PushNotificationService implements OnModuleInit {
     });
   }
 
+  async sendTestPush(userId: number): Promise<{ sent: number; failed: number }> {
+    return this.sendPush(userId, {
+      title: 'BV Groupe RH — Test',
+      body: 'Notification test : les alertes hors application fonctionnent.',
+      tag: 'bv-push-test',
+      icon: DEFAULT_PUSH_ICON,
+      data: {
+        url: '/employee/notifications',
+        icon: DEFAULT_PUSH_ICON,
+        tag: 'bv-push-test',
+      },
+    });
+  }
+
   async sendPush(
     userId: number,
     payload: PushNotificationPayload,
   ): Promise<{ sent: number; failed: number }> {
     if (!this.vapidConfigured) {
+      this.logger.warn(
+        `Push non envoyé pour user #${userId} : VAPID non configuré sur le serveur`,
+      );
       return { sent: 0, failed: 0 };
     }
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
-      where: { userId },
+      where: { userId, deletedAt: null },
     });
 
     if (subscriptions.length === 0) {
+      this.logger.warn(
+        `Push non envoyé pour user #${userId} : aucun appareil abonné (POST /push/subscribe)`,
+      );
       return { sent: 0, failed: 0 };
     }
 
@@ -145,6 +165,16 @@ export class PushNotificationService implements OnModuleInit {
         }
       }),
     );
+
+    if (sent > 0) {
+      this.logger.log(
+        `Push envoyé user #${userId} : ${sent} ok, ${failed} échec(s)`,
+      );
+    } else if (failed > 0) {
+      this.logger.warn(
+        `Push échoué user #${userId} : ${failed} échec(s) — vérifier clés VAPID (publique Vercel = publique Render)`,
+      );
+    }
 
     return { sent, failed };
   }

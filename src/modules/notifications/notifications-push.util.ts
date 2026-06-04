@@ -66,19 +66,19 @@ function buildPushUrl(
 ): string {
   if (type === TypeNotification.paie && meta?.paieId) {
     return recipient === 'employe'
-      ? `/payslips/${meta.paieId}`
+      ? `/employee/paie/${meta.paieId}`
       : `/paie/${meta.paieId}`;
   }
 
   if (type === TypeNotification.conge && meta?.absenceId) {
     return recipient === 'employe'
-      ? '/leaves'
+      ? '/employee/leaves'
       : `/absences/${meta.absenceId}`;
   }
 
   if (type === TypeNotification.document) {
-    return recipient === 'employe' ? '/documents' : '/documents';
+    return recipient === 'employe' ? '/employee/documents' : '/documents';
   }
 
-  return '/notifications';
+  return recipient === 'employe' ? '/employee/notifications' : '/notifications';
 }
