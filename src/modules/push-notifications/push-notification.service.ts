@@ -114,6 +114,7 @@ export class PushNotificationService implements OnModuleInit {
     vapidConfigured: boolean;
     subscriptionCount: number;
     message: string;
+    hintApple?: string;
   }> {
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId, deletedAt: null },
@@ -156,7 +157,8 @@ export class PushNotificationService implements OnModuleInit {
 
     let message: string;
     if (result.sent > 0) {
-      message = `${result.sent} notification(s) envoyée(s). Fermez l'app pour voir l'alerte système.`;
+      message =
+        "Envoyé vers Apple/Google. Sur iPhone : fermez l'app (swipe vers le haut), vérifiez Réglages → Notifications → BV Groupe RH.";
     } else if (result.failed > 0) {
       message =
         'Échec envoi : vérifiez que NEXT_PUBLIC_VAPID_PUBLIC_KEY (Vercel) = VAPID_PUBLIC_KEY (Render).';
@@ -170,6 +172,11 @@ export class PushNotificationService implements OnModuleInit {
       vapidConfigured: true,
       subscriptionCount: subscriptions.length,
       message,
+      hintApple:
+        subscriptions.some((s) => s.endpoint.includes('web.push.apple.com')) &&
+        result.sent > 0
+          ? 'iOS : notification affichée par le service worker — app fermée, PWA depuis écran d\'accueil.'
+          : undefined,
     };
   }
 
@@ -228,12 +235,25 @@ export class PushNotificationService implements OnModuleInit {
     await Promise.all(
       subscriptions.map(async (subscription) => {
         try {
+          const isApple = subscription.endpoint.includes('web.push.apple.com');
           await webPush.sendNotification(
             {
               endpoint: subscription.endpoint,
               keys: subscription.keys as webPush.PushSubscription['keys'],
             },
             body,
+            {
+              TTL: 86_400,
+              urgency: 'high',
+              ...(isApple
+                ? {
+                    headers: {
+                      'apns-push-type': 'alert',
+                      'apns-priority': '10',
+                    },
+                  }
+                : {}),
+            },
           );
           sent++;
         } catch (error) {
