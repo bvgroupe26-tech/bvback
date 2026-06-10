@@ -11,6 +11,7 @@ import { User, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActiviteService } from '../activite/activite.service';
+import { EmployesService } from '../employes/employes.service';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly activiteService: ActiviteService,
+    private readonly employesService: EmployesService,
     private readonly refreshTokenService: RefreshTokenService,
   ) {}
 
@@ -108,16 +110,25 @@ export class AuthService {
   }
 
   private async enrichUserProfile(user: UserPayload): Promise<UserMePayload> {
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email, deletedAt: null },
-      select: {
-        id: true,
-        matricule: true,
-        poste: true,
-        departement: true,
-        avatar: true,
-      },
+    const resolved = await this.employesService.resolveEmployeForUser({
+      email: user.email,
+      nom: user.nom,
+      prenom: user.prenom,
+      role: user.role,
     });
+
+    const employe = resolved
+      ? await this.prisma.employe.findFirst({
+          where: { id: resolved.id, deletedAt: null },
+          select: {
+            id: true,
+            matricule: true,
+            poste: true,
+            departement: true,
+            avatar: true,
+          },
+        })
+      : null;
 
     if (!employe) {
       return {

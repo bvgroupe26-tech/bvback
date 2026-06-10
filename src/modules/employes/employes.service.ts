@@ -1,5 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Employe, Prisma, StatutEmploye } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Employe, Prisma, StatutEmploye, UserRole } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ActiviteService } from '../activite/activite.service';
@@ -48,9 +53,7 @@ export class EmployesService {
       throw new NotFoundException('Utilisateur introuvable');
     }
 
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email, deletedAt: null },
-    });
+    const employe = await this.resolveEmployeForUser(user);
 
     if (!employe) {
       throw new NotFoundException(
@@ -59,6 +62,80 @@ export class EmployesService {
     }
 
     return this.ensureMatricule(employe);
+  }
+
+  /** Lie ou crée une fiche employé pour admin / RH / manager (même email que le compte User). */
+  async resolveEmployeForUser(user: {
+    id?: number;
+    email: string;
+    nom: string;
+    prenom: string;
+    role: UserRole;
+  }): Promise<Employe | null> {
+    const existing = await this.prisma.employe.findFirst({
+      where: { email: user.email, deletedAt: null },
+    });
+
+    if (existing) {
+      return existing;
+    }
+
+    if (!this.isStaffRole(user.role)) {
+      return null;
+    }
+
+    return this.createStaffEmployeFromUser(user);
+  }
+
+  async ensureStaffEmployeForUser(user: {
+    email: string;
+    nom: string;
+    prenom: string;
+    role: UserRole;
+  }): Promise<Employe | null> {
+    return this.resolveEmployeForUser(user);
+  }
+
+  async listPostesReferentiel(): Promise<string[]> {
+    await this.syncPostesFromEmployes();
+    const rows = await this.prisma.posteReferentiel.findMany({
+      orderBy: { label: 'asc' },
+    });
+    return rows.map((row) => row.label);
+  }
+
+  async addPosteReferentiel(label: string): Promise<string[]> {
+    const normalized = this.normalizePosteLabel(label);
+    if (!normalized) {
+      throw new BadRequestException('Libellé de poste invalide');
+    }
+
+    try {
+      await this.prisma.posteReferentiel.create({ data: { label: normalized } });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Ce poste existe déjà');
+      }
+      throw error;
+    }
+
+    return this.listPostesReferentiel();
+  }
+
+  async removePosteReferentiel(label: string): Promise<string[]> {
+    const normalized = this.normalizePosteLabel(label);
+    if (!normalized) {
+      throw new BadRequestException('Libellé de poste invalide');
+    }
+
+    await this.prisma.posteReferentiel.deleteMany({
+      where: { label: normalized },
+    });
+
+    return this.listPostesReferentiel();
   }
 
   async updateByUserId(
@@ -343,6 +420,72 @@ export class EmployesService {
     if (dto.defTauxImpot !== undefined) data.defTauxImpot = dto.defTauxImpot;
 
     return data;
+  }
+
+  private isStaffRole(role: UserRole): boolean {
+    return (
+      role === UserRole.admin ||
+      role === UserRole.rh ||
+      role === UserRole.manager
+    );
+  }
+
+  private normalizePosteLabel(value: string): string | null {
+    const label = value.trim().replace(/\s+/g, ' ');
+    return label.length >= 2 ? label : null;
+  }
+
+  private async syncPostesFromEmployes(): Promise<void> {
+    const rows = await this.prisma.employe.findMany({
+      where: { poste: { not: null }, deletedAt: null },
+      select: { poste: true },
+      distinct: ['poste'],
+    });
+
+    for (const row of rows) {
+      const label = row.poste ? this.normalizePosteLabel(row.poste) : null;
+      if (!label) continue;
+      await this.prisma.posteReferentiel.upsert({
+        where: { label },
+        create: { label },
+        update: {},
+      });
+    }
+  }
+
+  private async createStaffEmployeFromUser(user: {
+    email: string;
+    nom: string;
+    prenom: string;
+    role: UserRole;
+  }): Promise<Employe> {
+    const posteByRole: Partial<Record<UserRole, string>> = {
+      [UserRole.rh]: 'Responsable RH',
+      [UserRole.manager]: 'Manager',
+      [UserRole.admin]: 'Administrateur',
+    };
+
+    const employe = await this.prisma.employe.create({
+      data: {
+        nom: user.nom,
+        prenom: user.prenom,
+        email: user.email,
+        poste: posteByRole[user.role] ?? 'Collaborateur',
+        departement: 'RH',
+        typeContrat: 'CDI',
+        dateEmbauche: new Date(),
+        statut: StatutEmploye.actif,
+        salaireBase: 0,
+      },
+    });
+
+    await this.activiteService.log(
+      'employe_ajout',
+      `Fiche employé liée au compte ${user.role} : ${user.prenom} ${user.nom}`,
+      employe.id,
+    );
+
+    return this.ensureMatricule(employe);
   }
 
   private formatMatricule(id: number): string {

@@ -34,6 +34,10 @@ import { Employe } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { CreateEmployeDto } from './dto/create-employe.dto';
+import {
+  CreatePosteReferentielDto,
+  RemovePosteReferentielDto,
+} from './dto/poste-referentiel.dto';
 import { QueryEmployesDto } from './dto/query-employes.dto';
 import { UpdateEmployeDto } from './dto/update-employe.dto';
 import { EmployesService } from './employes.service';
@@ -75,6 +79,43 @@ export class EmployesController {
   @ApiAuthResponses()
   create(@Body() dto: CreateEmployeDto): Promise<Employe> {
     return this.employesService.create(dto);
+  }
+
+  @Get('postes/referentiel')
+  @ApiOperation({
+    summary: 'Référentiel des postes',
+    description: 'Liste partagée des intitulés de poste (base de données).',
+  })
+  @ApiOkDataResponse('Liste des postes')
+  @ApiAuthResponses()
+  listPostesReferentiel(): Promise<string[]> {
+    return this.employesService.listPostesReferentiel();
+  }
+
+  @Post('postes/referentiel')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Ajouter un poste au référentiel' })
+  @ApiBody({ type: CreatePosteReferentielDto })
+  @ApiCreatedDataResponse('Liste mise à jour')
+  @ApiBadRequestResponse()
+  @ApiAuthResponses()
+  addPosteReferentiel(
+    @Body() dto: CreatePosteReferentielDto,
+  ): Promise<string[]> {
+    return this.employesService.addPosteReferentiel(dto.label);
+  }
+
+  @Post('postes/referentiel/remove')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Retirer un poste du référentiel' })
+  @ApiBody({ type: RemovePosteReferentielDto })
+  @ApiOkDataResponse('Liste mise à jour')
+  @ApiBadRequestResponse()
+  @ApiAuthResponses()
+  removePosteReferentiel(
+    @Body() dto: RemovePosteReferentielDto,
+  ): Promise<string[]> {
+    return this.employesService.removePosteReferentiel(dto.label);
   }
 
   @Get('me')

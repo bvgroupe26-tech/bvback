@@ -177,6 +177,14 @@ model Employe {
   @@map("employes")
 }
 
+model PosteReferentiel {
+  id        Int      @id @default(autoincrement())
+  label     String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("postes_referentiel")
+}
+
 model Presence {
   id                   Int            @id @default(autoincrement())
   employeId            Int

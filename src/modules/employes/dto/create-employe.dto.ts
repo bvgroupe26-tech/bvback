@@ -9,6 +9,7 @@ import {
 } from '../../../prisma/statut-employe';
 import { TYPE_CONTRAT, type TypeContrat } from '../../../prisma/type-contrat';
 import { Type } from 'class-transformer';
+import { EmptyStringToUndefined } from '../../../common/transforms/empty-string-to-undefined.transform';
 import {
   IsEmail,
   IsEnum,
@@ -56,6 +57,7 @@ export class CreateEmployeDto {
     example: '1992-03-18',
     description: 'Date de naissance au format ISO (AAAA-MM-JJ), pour le dossier RH.',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsISO8601({ strict: true })
   dateNaissance?: string;
@@ -64,6 +66,7 @@ export class CreateEmployeDto {
     example: '+237 6 77 12 34 56',
     description: 'Numéro de téléphone joignable (mobile ou fixe au Cameroun).',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsString()
   telephone?: string;
@@ -80,6 +83,7 @@ export class CreateEmployeDto {
     example: 'Quartier Bastos, Yaoundé',
     description: 'Adresse postale ou lieu de résidence utile au dossier administratif.',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsString()
   adresse?: string;
@@ -89,6 +93,7 @@ export class CreateEmployeDto {
     example: SITUATION_FAMILIALE.marie,
     description: 'Situation matrimoniale déclarée pour les charges et avantages sociaux.',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsEnum(SITUATION_FAMILIALE)
   situationFamiliale?: SituationFamiliale;
@@ -109,6 +114,7 @@ export class CreateEmployeDto {
     example: TYPE_CONTRAT.CDI,
     description: 'Type de contrat principal (CDI, CDD, stage, etc.).',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsEnum(TYPE_CONTRAT)
   typeContrat?: TypeContrat;
@@ -117,6 +123,7 @@ export class CreateEmployeDto {
     example: 'Responsable exploitation Douala',
     description: 'Intitulé du poste occupé ou à pourvoir au sein de BV Groupe.',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsString()
   poste?: string;
@@ -125,6 +132,7 @@ export class CreateEmployeDto {
     example: 'Exploitation & Logistique',
     description: 'Service ou direction de rattachement (organisation interne).',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsString()
   departement?: string;
@@ -133,6 +141,7 @@ export class CreateEmployeDto {
     example: '2025-09-01',
     description: 'Date d’entrée effective dans l’entreprise (AAAA-MM-JJ).',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsISO8601({ strict: true })
   dateEmbauche?: string;
@@ -142,6 +151,7 @@ export class CreateEmployeDto {
     description:
       'Date de fin de contrat (AAAA-MM-JJ). Utilisée pour le prorata du dernier mois de paie.',
   })
+  @EmptyStringToUndefined()
   @IsOptional()
   @IsISO8601({ strict: true })
   dateFinContrat?: string;

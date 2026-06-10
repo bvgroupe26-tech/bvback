@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
 import { PrismaService } from '../../prisma/prisma.service';
 import { USER_ROLE, type UserRole } from '../../prisma/user-role';
+import { EmployesService } from '../employes/employes.service';
 
 type User = NonNullable<
   Awaited<ReturnType<PrismaService['user']['findFirst']>>
@@ -21,7 +22,10 @@ import { UserResponseDto } from './dto/user-response.dto';
 export class UsersService {
   private readonly bcryptRounds = 10;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly employesService: EmployesService,
+  ) {}
 
   findByEmail(email: string): Promise<User | null> {
     return this.prisma.user.findFirst({ where: { email } });
@@ -66,6 +70,13 @@ export class UsersService {
         prenom: dto.prenom,
         role: dto.role,
       },
+    });
+
+    await this.employesService.ensureStaffEmployeForUser({
+      email: user.email,
+      nom: user.nom,
+      prenom: user.prenom,
+      role: user.role,
     });
 
     return this.toResponse(user);
