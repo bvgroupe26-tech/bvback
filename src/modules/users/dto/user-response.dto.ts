@@ -7,7 +7,7 @@ export class UserResponseDto {
   @Expose()
   @ApiProperty({
     example: 42,
-    description: 'Identifiant unique de l’utilisateur dans le système BV Groupe.',
+    description: "Identifiant unique de l'utilisateur dans le système BV Groupe.",
   })
   id!: number;
 
@@ -36,7 +36,7 @@ export class UserResponseDto {
   @ApiProperty({
     enum: USER_ROLE,
     example: USER_ROLE.rh,
-    description: 'Rôle attribué (admin, manager, RH ou employé).',
+    description: "Rôle attribué (admin, manager, RH ou employé).",
   })
   role!: UserRole;
 
@@ -58,10 +58,17 @@ export class UserResponseDto {
   @ApiPropertyOptional({
     nullable: true,
     example: '2026-05-14T17:30:00.000Z',
-    description:
-      'Dernière connexion réussie au portail ; null si l’utilisateur ne s’est jamais connecté.',
+    description: "Dernière connexion réussie au portail ; null si l'utilisateur ne s'est jamais connecté.",
   })
   lastLogin!: Date | null;
+
+  @Expose()
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 12,
+    description: "ID de la fiche employé liée (même email). Null si aucune fiche n'existe.",
+  })
+  employe_id!: number | null;
 
   @Exclude()
   passwordHash?: string;

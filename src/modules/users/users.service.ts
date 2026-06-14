@@ -42,7 +42,12 @@ export class UsersService {
       throw new NotFoundException(`Utilisateur #${id} introuvable`);
     }
 
-    return this.toResponse(user);
+    const employe = await this.prisma.employe.findFirst({
+      where: { email: user.email, deletedAt: null },
+      select: { id: true },
+    });
+
+    return this.toResponse(user, employe?.id ?? null);
   }
 
   async findAll(): Promise<UserResponseDto[]> {
@@ -50,7 +55,16 @@ export class UsersService {
       orderBy: { id: 'asc' },
     });
 
-    return users.map((user) => this.toResponse(user));
+    const emails = users.map((u) => u.email);
+    const employes = emails.length
+      ? await this.prisma.employe.findMany({
+          where: { email: { in: emails }, deletedAt: null },
+          select: { id: true, email: true },
+        })
+      : [];
+    const byEmail = new Map(employes.map((e) => [e.email, e.id]));
+
+    return users.map((user) => this.toResponse(user, byEmail.get(user.email) ?? null));
   }
 
   async create(dto: CreateUserDto): Promise<UserResponseDto> {
@@ -159,10 +173,12 @@ export class UsersService {
     });
   }
 
-  toResponse(user: User): UserResponseDto {
-    return plainToInstance(UserResponseDto, user, {
+  toResponse(user: User, employe_id: number | null = null): UserResponseDto {
+    const dto = plainToInstance(UserResponseDto, user, {
       excludeExtraneousValues: true,
     });
+    dto.employe_id = employe_id;
+    return dto;
   }
 
   private async assertCanDeactivateUser(user: User): Promise<void> {
