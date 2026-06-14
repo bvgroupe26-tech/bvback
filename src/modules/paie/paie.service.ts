@@ -185,6 +185,7 @@ export class PaieService {
 
   async generateBulk(dto: GeneratePaieDto): Promise<GeneratePaieResult> {
     const employes = await this.prisma.employe.findMany({
+      where: { deletedAt: null },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
 

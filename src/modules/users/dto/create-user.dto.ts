@@ -1,8 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
   IsEnum,
+  IsNumber,
+  IsOptional,
   IsString,
+  Min,
   MinLength,
 } from 'class-validator';
 import { USER_ROLE, type UserRole } from '../../../prisma/user-role';
@@ -50,4 +53,13 @@ export class CreateUserDto {
   })
   @IsEnum(USER_ROLE)
   role!: UserRole;
+
+  @ApiPropertyOptional({
+    example: 500000,
+    description: 'Salaire de base mensuel (FCFA). Utilisé pour la fiche employé auto-créée.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  salaireBase?: number;
 }

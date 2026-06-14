@@ -127,10 +127,10 @@ export class DashboardService {
       offresOuvertes,
       candidaturesEnCours,
     ] = await Promise.all([
-      this.prisma.employe.count(),
-      this.prisma.employe.count({ where: { statut: StatutEmploye.actif } }),
+      this.prisma.employe.count({ where: { deletedAt: null } }),
+      this.prisma.employe.count({ where: { statut: StatutEmploye.actif, deletedAt: null } }),
       this.prisma.employe.count({
-        where: { createdAt: { gte: startOfMonth } },
+        where: { createdAt: { gte: startOfMonth }, deletedAt: null },
       }),
       this.prisma.presence.count({
         where: { date: { gte: startOfToday, lte: endOfToday } },
@@ -147,7 +147,10 @@ export class DashboardService {
           statut: StatutPresence.absent,
         },
       }),
-      this.prisma.paie.aggregate({ _sum: { salaireNet: true } }),
+      this.prisma.employe.aggregate({
+        where: { statut: StatutEmploye.actif, deletedAt: null },
+        _sum: { salaireBase: true },
+      }),
       this.prisma.paie.count({ where: { statut: StatutPaie.en_attente } }),
       this.prisma.offreEmploi.count({
         where: { statut: StatutOffreEmploi.ouverte },
@@ -174,7 +177,7 @@ export class DashboardService {
         absents: absentsToday,
       },
       paie: {
-        masseSalarialeTotal: masseSalarialeAgg._sum.salaireNet ?? 0,
+        masseSalarialeTotal: masseSalarialeAgg._sum.salaireBase ?? 0,
         bulletinsEnAttente,
       },
       recrutement: {

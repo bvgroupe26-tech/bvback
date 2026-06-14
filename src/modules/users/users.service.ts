@@ -77,6 +77,7 @@ export class UsersService {
       nom: user.nom,
       prenom: user.prenom,
       role: user.role,
+      salaireBase: dto.salaireBase,
     });
 
     return this.toResponse(user);

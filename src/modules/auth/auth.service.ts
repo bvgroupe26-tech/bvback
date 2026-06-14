@@ -86,6 +86,7 @@ export class AuthService {
       nom: dto.nom,
       prenom: dto.prenom,
       role: dto.role,
+      salaireBase: dto.salaireBase,
     });
 
     const user = await this.usersService.findById(created.id);

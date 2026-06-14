@@ -71,6 +71,7 @@ export class EmployesService {
     nom: string;
     prenom: string;
     role: UserRole;
+    salaireBase?: number;
   }): Promise<Employe | null> {
     const existing = await this.prisma.employe.findFirst({
       where: { email: user.email, deletedAt: null },
@@ -92,6 +93,7 @@ export class EmployesService {
     nom: string;
     prenom: string;
     role: UserRole;
+    salaireBase?: number;
   }): Promise<Employe | null> {
     return this.resolveEmployeForUser(user);
   }
@@ -252,22 +254,23 @@ export class EmployesService {
       departementGroups,
       contratGroups,
     ] = await Promise.all([
-      this.prisma.employe.count(),
-      this.prisma.employe.count({ where: { statut: StatutEmploye.actif } }),
-      this.prisma.employe.count({ where: { statut: StatutEmploye.inactif } }),
-      this.prisma.employe.count({ where: { statut: StatutEmploye.suspendu } }),
+      this.prisma.employe.count({ where: { deletedAt: null } }),
+      this.prisma.employe.count({ where: { statut: StatutEmploye.actif, deletedAt: null } }),
+      this.prisma.employe.count({ where: { statut: StatutEmploye.inactif, deletedAt: null } }),
+      this.prisma.employe.count({ where: { statut: StatutEmploye.suspendu, deletedAt: null } }),
       this.prisma.employe.aggregate({
-        where: { statut: StatutEmploye.actif },
+        where: { statut: StatutEmploye.actif, deletedAt: null },
         _sum: { salaireBase: true },
       }),
       this.prisma.employe.groupBy({
         by: ['departement'],
+        where: { deletedAt: null },
         _count: { id: true },
         orderBy: { departement: 'asc' },
       }),
       this.prisma.employe.groupBy({
         by: ['typeContrat'],
-        where: { typeContrat: { not: null } },
+        where: { typeContrat: { not: null }, deletedAt: null },
         _count: { id: true },
         orderBy: { typeContrat: 'asc' },
       }),
@@ -458,6 +461,7 @@ export class EmployesService {
     nom: string;
     prenom: string;
     role: UserRole;
+    salaireBase?: number;
   }): Promise<Employe> {
     const posteByRole: Partial<Record<UserRole, string>> = {
       [UserRole.rh]: 'Responsable RH',
@@ -475,7 +479,7 @@ export class EmployesService {
         typeContrat: 'CDI',
         dateEmbauche: new Date(),
         statut: StatutEmploye.actif,
-        salaireBase: 0,
+        salaireBase: user.salaireBase ?? 0,
       },
     });
 

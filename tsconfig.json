@@ -9,7 +9,6 @@
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strict": true,
@@ -21,10 +20,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "paths": {
-      "@prisma/client": ["node_modules/.prisma/client"],
-      "@prisma/client/*": ["node_modules/.prisma/client/*"],
-      ".prisma/client": ["node_modules/.prisma/client"],
-      ".prisma/client/*": ["node_modules/.prisma/client/*"]
+      "@prisma/client": ["./node_modules/.prisma/client"],
+      "@prisma/client/*": ["./node_modules/.prisma/client/*"],
+      ".prisma/client": ["./node_modules/.prisma/client"],
+      ".prisma/client/*": ["./node_modules/.prisma/client/*"]
     }
   },
   "include": ["src/**/*", "scripts/**/*", "prisma/**/*"],
