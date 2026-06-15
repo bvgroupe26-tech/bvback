@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -171,6 +172,26 @@ export class UsersService {
       where: { id },
       data: { lastLogin: new Date() },
     });
+  }
+
+  async ensureEmployeForUser(id: number): Promise<{ employe_id: number }> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException(`Utilisateur #${id} introuvable`);
+
+    const employe = await this.employesService.ensureStaffEmployeForUser({
+      email: user.email,
+      nom: user.nom,
+      prenom: user.prenom,
+      role: user.role,
+    });
+
+    if (!employe) {
+      throw new BadRequestException(
+        "Ce compte n'est pas un rôle staff (admin/rh/manager)",
+      );
+    }
+
+    return { employe_id: employe.id };
   }
 
   toResponse(user: User, employe_id: number | null = null): UserResponseDto {

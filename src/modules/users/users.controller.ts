@@ -89,6 +89,24 @@ export class UsersController {
     return this.usersService.update(id, dto);
   }
 
+  @Post(':id/ensure-employe')
+  @Roles('admin', 'rh')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: "Créer ou récupérer la fiche employé liée à un compte staff",
+    description:
+      "Idempotent : retourne l'ID existant si la fiche existe déjà, sinon la crée.",
+  })
+  @ApiParam({ name: 'id', type: Number, example: 3 })
+  @ApiOkDataResponse('ID de la fiche employé')
+  @ApiNotFoundResponse('Utilisateur')
+  @ApiAuthResponses()
+  ensureEmploye(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<{ employe_id: number }> {
+    return this.usersService.ensureEmployeForUser(id);
+  }
+
   @Post(':id/delete')
   @Roles('admin')
   @HttpCode(204)
