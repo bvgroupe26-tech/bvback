@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Employe, Prisma, StatutEmploye, UserRole } from '@prisma/client';
-import * as fs from 'fs';
 import * as path from 'path';
 import { ActiviteService } from '../activite/activite.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SupabaseStorageService } from '../supabase/supabase-storage.service';
 import { CreateEmployeDto } from './dto/create-employe.dto';
 import { QueryEmployesDto } from './dto/query-employes.dto';
 import { UpdateEmployeDto } from './dto/update-employe.dto';
@@ -23,6 +23,7 @@ export class EmployesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activiteService: ActiviteService,
+    private readonly supabaseStorage: SupabaseStorageService,
   ) {}
 
   findAll(query: QueryEmployesDto): Promise<Employe[]> {
@@ -226,21 +227,18 @@ export class EmployesService {
       throw new BadRequestException('Aucun fichier envoyé');
     }
 
-    const uploadsDir = path.join(process.cwd(), 'uploads', 'avatars');
-
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
-    const ext = path.extname(file.originalname) || '.png';
+    const ext = path.extname(file.originalname) || '.jpg';
     const filename = `avatar-${id}-${Date.now()}${ext}`;
-    const filepath = path.join(uploadsDir, filename);
 
-    fs.writeFileSync(filepath, file.buffer);
+    const publicUrl = await this.supabaseStorage.uploadAvatar(
+      file.buffer,
+      filename,
+      file.mimetype || 'image/jpeg',
+    );
 
     return this.prisma.employe.update({
       where: { id },
-      data: { avatar: `/uploads/avatars/${filename}` },
+      data: { avatar: publicUrl },
     });
   }
 
