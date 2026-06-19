@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -13,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -42,6 +44,19 @@ import { QueryEmployesDto } from './dto/query-employes.dto';
 import { UpdateEmployeDto } from './dto/update-employe.dto';
 import { EmployesService } from './employes.service';
 import { EmployesStatsResponse } from './types/employes-stats.type';
+
+const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+const AVATAR_UPLOAD_OPTIONS: MulterOptions = {
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('Seules les images (JPEG, PNG, WebP, GIF) sont acceptées'), false);
+    }
+  },
+};
 
 @ApiTags('employes')
 @ApiBearerAuth('JWT')
@@ -148,7 +163,7 @@ export class EmployesController {
   }
 
   @Put('me/avatar')
-  @UseInterceptors(FileInterceptor('avatar'))
+  @UseInterceptors(FileInterceptor('avatar', AVATAR_UPLOAD_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Mettre à jour mon avatar',
@@ -196,7 +211,7 @@ export class EmployesController {
   }
 
   @Put(':id/avatar')
-  @UseInterceptors(FileInterceptor('avatar'))
+  @UseInterceptors(FileInterceptor('avatar', AVATAR_UPLOAD_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary: 'Upload avatar employé',

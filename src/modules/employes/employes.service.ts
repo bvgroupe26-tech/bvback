@@ -220,6 +220,14 @@ export class EmployesService {
     ]);
   }
 
+  private static readonly SAFE_IMAGE_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+  };
+
   async updateAvatar(id: number, file: Express.Multer.File): Promise<Employe> {
     await this.findOne(id);
 
@@ -227,13 +235,15 @@ export class EmployesService {
       throw new BadRequestException('Aucun fichier envoyé');
     }
 
-    const ext = path.extname(file.originalname) || '.jpg';
+    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+    const mimetype =
+      EmployesService.SAFE_IMAGE_TYPES[ext] ?? 'image/jpeg';
     const filename = `avatar-${id}-${Date.now()}${ext}`;
 
     const publicUrl = await this.supabaseStorage.uploadAvatar(
       file.buffer,
       filename,
-      file.mimetype || 'image/jpeg',
+      mimetype,
     );
 
     return this.prisma.employe.update({
