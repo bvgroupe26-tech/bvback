@@ -30,9 +30,6 @@
     "vapid:generate": "node -e \"const w=require('web-push');const k=w.generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+JSON.stringify(k.publicKey));console.log('VAPID_PRIVATE_KEY='+JSON.stringify(k.privateKey));\"",
     "postinstall": "prisma generate"
   },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
-  },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
