@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
- * Lecture périodique de la base — chaque jour à 12h00 (fuseau configurable).
+ * Lecture périodique de la base — toutes les 30 minutes.
  * Désactiver : ENABLE_PERIODIC_DB_TASK=0 dans .env
  */
 @Injectable()
@@ -16,8 +16,8 @@ export class PeriodicDbTask {
     private readonly config: ConfigService,
   ) {}
 
-  /** Tous les jours à 12:00 — PERIODIC_DB_TASK_TIMEZONE (défaut Africa/Douala) */
-  @Cron(CronExpression.EVERY_DAY_AT_NOON, {
+  /** Toutes les 30 minutes — PERIODIC_DB_TASK_TIMEZONE (défaut Africa/Douala) */
+  @Cron(CronExpression.EVERY_30_MINUTES, {
     name: 'periodic-db-read',
     timeZone: process.env.PERIODIC_DB_TASK_TIMEZONE ?? 'Africa/Douala',
   })
