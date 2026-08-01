@@ -53,11 +53,17 @@ export class PaieController {
   constructor(private readonly paieService: PaieService) {}
 
   @Get('stats')
-  @ApiOperation({ summary: 'Statistiques paie', description: 'Masse salariale, bulletins payés/en attente.' })
+  @ApiOperation({
+    summary: 'Statistiques paie',
+    description:
+      'Masse salariale, bulletins payés/en attente. Filtré sur le mois/année (défaut : mois en cours).',
+  })
+  @ApiQuery({ name: 'mois', required: false, example: '05' })
+  @ApiQuery({ name: 'annee', required: false, example: 2026 })
   @ApiOkDataResponse('Statistiques paie')
   @ApiAuthResponses()
-  getStats(): Promise<PaieStatsResponse> {
-    return this.paieService.getStats();
+  getStats(@Query() query: QueryPaieDto): Promise<PaieStatsResponse> {
+    return this.paieService.getStats(query.mois, query.annee);
   }
 
   @Get('evolution')

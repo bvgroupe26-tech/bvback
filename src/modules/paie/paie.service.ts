@@ -45,8 +45,8 @@ export class PaieService {
   }
 
   async findOne(id: number): Promise<PaieWithEmploye> {
-    const paie = await this.prisma.paie.findUnique({
-      where: { id },
+    const paie = await this.prisma.paie.findFirst({
+      where: { id, deletedAt: null },
       include: paieWithEmployeInclude,
     });
 
@@ -200,6 +200,8 @@ export class PaieService {
             employeId: employe.id,
             mois: dto.mois,
             annee: dto.annee,
+            deletedAt: null,
+            statut: { not: StatutPaie.annule },
           },
         });
 
@@ -373,15 +375,32 @@ export class PaieService {
     });
   }
 
-  async getStats(): Promise<PaieStatsResponse> {
+  async getStats(mois?: string, annee?: number): Promise<PaieStatsResponse> {
+    const now = new Date();
+    const period: Prisma.PaieWhereInput = {
+      deletedAt: null,
+      mois: mois ?? String(now.getMonth() + 1).padStart(2, '0'),
+      annee: annee ?? now.getFullYear(),
+    };
+    const dueThisPeriod: Prisma.PaieWhereInput = {
+      ...period,
+      statut: { not: StatutPaie.annule },
+    };
+
     const [total, enAttente, paye, annule, netAgg, brutAgg] =
       await Promise.all([
-        this.prisma.paie.count(),
-        this.prisma.paie.count({ where: { statut: StatutPaie.en_attente } }),
-        this.prisma.paie.count({ where: { statut: StatutPaie.paye } }),
-        this.prisma.paie.count({ where: { statut: StatutPaie.annule } }),
-        this.prisma.paie.aggregate({ _sum: { salaireNet: true } }),
+        this.prisma.paie.count({ where: period }),
+        this.prisma.paie.count({
+          where: { ...period, statut: StatutPaie.en_attente },
+        }),
+        this.prisma.paie.count({ where: { ...period, statut: StatutPaie.paye } }),
+        this.prisma.paie.count({ where: { ...period, statut: StatutPaie.annule } }),
         this.prisma.paie.aggregate({
+          where: dueThisPeriod,
+          _sum: { salaireNet: true },
+        }),
+        this.prisma.paie.aggregate({
+          where: dueThisPeriod,
           _sum: {
             salaireBase: true,
             primeTransport: true,
@@ -413,6 +432,7 @@ export class PaieService {
   async getEvolution(): Promise<PaieEvolutionPoint[]> {
     const rows = await this.prisma.paie.groupBy({
       by: ['mois', 'annee'],
+      where: { deletedAt: null, statut: { not: StatutPaie.annule } },
       _sum: { salaireNet: true },
       orderBy: [{ annee: 'desc' }, { mois: 'desc' }],
       take: 12,
@@ -443,7 +463,7 @@ export class PaieService {
   }
 
   private buildWhere(query: QueryPaieDto): Prisma.PaieWhereInput {
-    const where: Prisma.PaieWhereInput = {};
+    const where: Prisma.PaieWhereInput = { deletedAt: null };
 
     if (query.mois) where.mois = query.mois;
     if (query.annee !== undefined) where.annee = query.annee;
@@ -524,7 +544,13 @@ export class PaieService {
     excludeId?: number,
   ): Promise<void> {
     const existing = await this.prisma.paie.findFirst({
-      where: { employeId, mois, annee },
+      where: {
+        employeId,
+        mois,
+        annee,
+        deletedAt: null,
+        statut: { not: StatutPaie.annule },
+      },
     });
 
     if (existing && existing.id !== excludeId) {
