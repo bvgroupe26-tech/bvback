@@ -184,10 +184,12 @@ export class PaieService {
   }
 
   async generateBulk(dto: GeneratePaieDto): Promise<GeneratePaieResult> {
-    const employes = await this.prisma.employe.findMany({
-      where: { deletedAt: null },
-      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
-    });
+    const employes = dto.employeId
+      ? [await this.getEmployeOrThrow(dto.employeId)]
+      : await this.prisma.employe.findMany({
+          where: { deletedAt: null },
+          orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+        });
 
     const bulletins: PaieWithEmploye[] = [];
     const skippedDetails: PaieSkippedEntry[] = [];
@@ -449,16 +451,24 @@ export class PaieService {
 
   isGenerateMode(body: Record<string, unknown>): boolean {
     const record = body;
-    const keys = Object.keys(record).filter(
-      (key) => record[key] !== undefined && record[key] !== null,
-    );
+    if (!('mois' in record) || !('annee' in record)) {
+      return false;
+    }
 
-    return (
-      keys.length === 2 &&
-      keys.includes('mois') &&
-      keys.includes('annee') &&
-      !('employeId' in record) &&
-      !('employe_id' in record)
+    const manualFields = [
+      'salaireBase',
+      'primeTransport',
+      'primeLogement',
+      'primePerformance',
+      'autresPrimes',
+      'autresRetenues',
+      'cnss',
+      'impot',
+      'statut',
+    ];
+
+    return !manualFields.some(
+      (field) => record[field] !== undefined && record[field] !== null,
     );
   }
 

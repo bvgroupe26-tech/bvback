@@ -1,8 +1,19 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsString, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
 
 export class GeneratePaieDto {
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'Identifiant de l employé pour limiter la génération à un seul collaborateur. Si absent, tous les employés éligibles sont traités.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  employeId?: number;
+
   @ApiProperty({
     example: '05',
     description:
