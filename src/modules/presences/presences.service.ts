@@ -99,7 +99,7 @@ export class PresencesService {
     const presence = await this.prisma.presence.create({
       data: {
         employeId: dto.employeId,
-        date: new Date(dto.date),
+        date: this.parseDateOnly(dto.date),
         heureEntree: dto.heureEntree,
         heureSortie: dto.heureSortie,
         statut: dto.statut,
@@ -171,15 +171,20 @@ export class PresencesService {
   }
 
   private startOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(0, 0, 0, 0);
+    const date = this.parseDateOnly(isoDate);
+    date.setUTCHours(0, 0, 0, 0);
     return date;
   }
 
   private endOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(23, 59, 59, 999);
+    const date = this.parseDateOnly(isoDate);
+    date.setUTCHours(23, 59, 59, 999);
     return date;
+  }
+
+  private parseDateOnly(isoDate: string): Date {
+    const [year, month, day] = isoDate.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day));
   }
 
   private toUpdateInput(dto: UpdatePresenceDto): Prisma.PresenceUpdateInput {
@@ -188,7 +193,7 @@ export class PresencesService {
     if (dto.employeId !== undefined) {
       data.employe = { connect: { id: dto.employeId } };
     }
-    if (dto.date !== undefined) data.date = new Date(dto.date);
+    if (dto.date !== undefined) data.date = this.parseDateOnly(dto.date);
     if (dto.heureEntree !== undefined) data.heureEntree = dto.heureEntree;
     if (dto.heureSortie !== undefined) data.heureSortie = dto.heureSortie;
     if (dto.statut !== undefined) data.statut = dto.statut;
