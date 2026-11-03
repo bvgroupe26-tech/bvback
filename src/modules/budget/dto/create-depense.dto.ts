@@ -1,92 +1,92 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { StatutBudgetDepense } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
-  IsEnum,
   IsInt,
   IsISO8601,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 
+/** Création toujours en brouillon : le statut n'est jamais fourni par le client. */
 export class CreateDepenseDto {
-  @ApiProperty({
-    example: 4,
-    description: 'Enveloppe budgétaire BV Groupe sur laquelle imputer la dépense.',
-  })
+  @ApiProperty({ example: 4, description: 'Enveloppe budgétaire d’imputation.' })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   enveloppeId!: number;
 
-  @ApiPropertyOptional({
-    example: 2,
-    description:
-      'Rubrique analytique (catégorie) pour ventiler la charge au-delà de l’enveloppe globale.',
-  })
+  @ApiPropertyOptional({ example: 2, description: 'Catégorie (compte SYSCOHADA).' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   categorieId?: number;
 
-  @ApiProperty({
-    example: 'Renouvellement licences Microsoft 365 — siège Yaoundé',
-    description: 'Libellé opérationnel de la dépense pour audit et rapprochement.',
-  })
+  @ApiProperty({ example: 'Licences Microsoft 365 — siège' })
   @IsString()
   @IsNotEmpty()
   libelle!: string;
 
-  @ApiProperty({
-    example: 325000,
-    description: 'Montant TTC en FCFA (enregistré en montantTtc ; TVA à 0 tant que la saisie HT/TVA n’existe pas).',
+  @ApiPropertyOptional({
+    example: 275424,
+    description: 'Montant HT en FCFA. La TVA et le TTC sont calculés par le serveur.',
   })
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0.01)
-  montant!: number;
+  @Min(1)
+  montantHt?: number;
 
-  @ApiProperty({
-    example: '2026-05-08',
-    description: 'Date comptable ou date de facture fournisseur.',
+  @ApiPropertyOptional({
+    example: 18,
+    description: 'Taux de TVA en %. Défaut : taux des paramètres finance.',
   })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  tauxTva?: number;
+
+  @ApiPropertyOptional({
+    example: 325000,
+    description: 'Ancien champ : montant TTC sans TVA. Ignoré si montantHt est fourni.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  montant?: number;
+
+  @ApiProperty({ example: '2026-05-08', description: 'Date de facture ou date comptable.' })
   @IsISO8601({ strict: true })
   dateDepense!: string;
 
+  @ApiPropertyOptional({ example: 7, description: 'Fournisseur du référentiel.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  fournisseurId?: number;
+
   @ApiPropertyOptional({
-    example: 'SOREPCO SARL — Douala',
-    description: 'Prestataire ou fournisseur associé à la pièce justificative.',
+    example: 'SOREPCO SARL',
+    description: 'Fournisseur en texte libre (hors référentiel).',
   })
   @IsOptional()
   @IsString()
   fournisseur?: string;
 
-  @ApiPropertyOptional({
-    example: 'FAC-2026-01487',
-    description: 'Référence facture, bon de commande ou engagement interne.',
-  })
+  @ApiPropertyOptional({ example: 'FAC-2026-01487' })
   @IsOptional()
   @IsString()
   referencePiece?: string;
 
-  @ApiPropertyOptional({
-    enum: StatutBudgetDepense,
-    example: StatutBudgetDepense.soumise,
-    description:
-      'Circuit de validation : brouillon, soumise, validée (N1/N2), refusée, payée ou annulée.',
-  })
-  @IsOptional()
-  @IsEnum(StatutBudgetDepense)
-  statut?: StatutBudgetDepense;
-
-  @ApiPropertyOptional({
-    example: 'Urgent — renouvellement avant échéance contrat groupe.',
-    description: 'Commentaire pour la fonction finance ou le contrôle de gestion.',
-  })
+  @ApiPropertyOptional({ example: 'Urgent — renouvellement avant échéance.' })
   @IsOptional()
   @IsString()
   commentaire?: string;

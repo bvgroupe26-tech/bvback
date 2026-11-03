@@ -10,7 +10,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AbsencesModule } from './modules/absences/absences.module';
 import { EmployesModule } from './modules/employes/employes.module';
 import { PaieModule } from './modules/paie/paie.module';
+import { PaiePdfModule } from './modules/paie/pdf/paie-pdf.module';
+import { PaieSettingsModule } from './modules/paie-settings/paie-settings.module';
 import { BudgetModule } from './modules/budget/budget.module';
+import { FournisseursModule } from './modules/fournisseurs/fournisseurs.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DeveloppementRhModule } from './modules/developpement-rh/developpement-rh.module';
 import { RecrutementModule } from './modules/recrutement/recrutement.module';
@@ -39,11 +42,15 @@ import { SchedulerAppModule } from './modules/scheduler/scheduler.module';
     EmployesModule,
     PresencesModule,
     AbsencesModule,
+    // Avant PaieModule : `paie/verify/:numero` ne doit pas être capté par une route `paie/:id/...`.
+    PaiePdfModule,
     PaieModule,
+    PaieSettingsModule,
     RecrutementModule,
     DeveloppementRhModule,
     DashboardModule,
     BudgetModule,
+    FournisseursModule,
     DocumentsModule,
     NotificationsModule,
     PushNotificationsModule,

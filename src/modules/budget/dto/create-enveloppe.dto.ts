@@ -2,12 +2,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StatutBudgetEnveloppe } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -65,4 +67,23 @@ export class CreateEnveloppeDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    example: 80,
+    description: 'Seuil d’alerte de consommation en % du prévu.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  seuilAlertePct?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Refuser toute dépense qui ferait dépasser le prévu.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  bloquerDepassement?: boolean;
 }

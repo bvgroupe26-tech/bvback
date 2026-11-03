@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateCategorieDto {
   @ApiProperty({
@@ -27,4 +27,13 @@ export class CreateCategorieDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    example: '6052',
+    description: 'Compte SYSCOHADA de charge associé (classe 6).',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^6\d{1,7}$/, { message: 'Le compte SYSCOHADA doit être un compte de classe 6 (ex. 6052).' })
+  compteSyscohada?: string;
 }

@@ -427,6 +427,14 @@ export class EmployesService {
       defAutresPrimes: dto.defAutresPrimes,
       defTauxCnss: dto.defTauxCnss,
       defTauxImpot: dto.defTauxImpot,
+      numeroCnss: dto.numeroCnss,
+      niu: dto.niu,
+      categorie: dto.categorie,
+      echelon: dto.echelon,
+      modePaiement: dto.modePaiement,
+      banque: dto.banque,
+      rib: dto.rib,
+      mobileMoney: dto.mobileMoney,
     };
   }
 
@@ -473,6 +481,14 @@ export class EmployesService {
     if (dto.defAutresPrimes !== undefined) data.defAutresPrimes = dto.defAutresPrimes;
     if (dto.defTauxCnss !== undefined) data.defTauxCnss = dto.defTauxCnss;
     if (dto.defTauxImpot !== undefined) data.defTauxImpot = dto.defTauxImpot;
+    if (dto.numeroCnss !== undefined) data.numeroCnss = dto.numeroCnss || null;
+    if (dto.niu !== undefined) data.niu = dto.niu || null;
+    if (dto.categorie !== undefined) data.categorie = dto.categorie || null;
+    if (dto.echelon !== undefined) data.echelon = dto.echelon || null;
+    if (dto.modePaiement !== undefined) data.modePaiement = dto.modePaiement || null;
+    if (dto.banque !== undefined) data.banque = dto.banque || null;
+    if (dto.rib !== undefined) data.rib = dto.rib || null;
+    if (dto.mobileMoney !== undefined) data.mobileMoney = dto.mobileMoney || null;
 
     return data;
   }

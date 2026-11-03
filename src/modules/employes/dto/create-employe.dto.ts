@@ -21,8 +21,10 @@ import {
   Matches,
   IsString,
   Max,
+  MaxLength,
   Min,
 } from 'class-validator';
+import { ModePaiement } from '@prisma/client';
 
 export class CreateEmployeDto {
   @ApiPropertyOptional({
@@ -245,4 +247,59 @@ export class CreateEmployeDto {
   @Min(0)
   @Max(1)
   defTauxImpot?: number;
+
+  @ApiPropertyOptional({ example: '1234567-A', description: 'Numéro d’immatriculation CNSS du salarié.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  numeroCnss?: string;
+
+  @ApiPropertyOptional({ example: 'M123456789012A', description: 'Numéro d’identification unique (NIU) fiscal.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  niu?: string;
+
+  @ApiPropertyOptional({ example: 'Cadre', description: 'Catégorie selon la convention collective.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  categorie?: string;
+
+  @ApiPropertyOptional({ example: 'B2', description: 'Échelon selon la convention collective.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  echelon?: string;
+
+  @ApiPropertyOptional({ enum: ModePaiement, example: ModePaiement.virement, description: 'Mode de paiement du salaire.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsEnum(ModePaiement)
+  modePaiement?: ModePaiement;
+
+  @ApiPropertyOptional({ example: 'BGFI Bank', description: 'Banque du salarié (virement).' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  banque?: string;
+
+  @ApiPropertyOptional({ example: 'CG39 30001 00012 12345678901 23', description: 'RIB / IBAN du salarié.' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  rib?: string;
+
+  @ApiPropertyOptional({ example: '+242 06 123 45 67', description: 'Numéro Mobile Money (MTN / Airtel).' })
+  @EmptyStringToUndefined()
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  mobileMoney?: string;
 }
