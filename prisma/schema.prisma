@@ -68,6 +68,57 @@ enum StatutPaie {
   en_attente
   paye
   annule
+  brouillon
+  calcule
+  valide
+}
+
+enum TypeBulletin {
+  normal
+  rappel
+  contre_bulletin
+}
+
+enum MoteurPaie {
+  legacy
+  v2
+}
+
+enum TypeRubrique {
+  gain
+  retenue
+  cotisation
+  impot
+  info
+}
+
+enum ModeCalculRubrique {
+  fixe
+  base_x_taux
+  bareme
+  variable
+}
+
+enum StatutPeriodePaie {
+  ouverte
+  calculee
+  validee
+  payee
+  cloturee
+}
+
+enum SourceVariablePaie {
+  manuel
+  presence
+  absence
+}
+
+enum ModePaiement {
+  especes
+  virement
+  cheque
+  mobile_money
+  carte
 }
 
 enum StatutOffreEmploi {
@@ -110,10 +161,13 @@ enum StatutBudgetEnveloppe {
 }
 
 enum StatutBudgetDepense {
-  en_attente
-  approuve
-  refuse
-  paye
+  brouillon
+  soumise
+  validee_n1
+  validee
+  refusee
+  payee
+  annulee
 }
 
 enum TypeDocumentRh {
@@ -136,45 +190,55 @@ enum TypeNotification {
 // ─── Modèles ─────────────────────────────────────────────────────────────────
 
 model Employe {
-  id                    Int                @id @default(autoincrement())
-  matricule             String?            @unique
-  nom                   String
-  prenom                String
-  dateNaissance         DateTime?
-  telephone             String?
-  email                 String?
-  adresse               String?
-  avatar                String?
-  situationFamiliale    SituationFamiliale?
-  nombreEnfants         Int                @default(0)
-  typeContrat           TypeContrat?
-  poste                 String?
-  departement           String?
-  dateEmbauche          DateTime?
-  dateFinContrat        DateTime?
-  statut                StatutEmploye      @default(actif)
-  salaireBase           Float              @default(0)
-  defPrimeTransport       Float              @default(0)
-  defPrimeLogement        Float              @default(0)
-  defPrimePerformance     Float              @default(0)
-  defAutresPrimes         Float              @default(0)
-  defTauxCnss             Float?
-  defTauxImpot            Float?
-  userId                  Int?               @unique
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
-  deletedAt               DateTime?
+  id                  Int                 @id @default(autoincrement())
+  matricule           String?             @unique
+  nom                 String
+  prenom              String
+  dateNaissance       DateTime?
+  telephone           String?
+  email               String?
+  adresse             String?
+  avatar              String?
+  situationFamiliale  SituationFamiliale?
+  nombreEnfants       Int                 @default(0)
+  typeContrat         TypeContrat?
+  poste               String?
+  departement         String?
+  dateEmbauche        DateTime?
+  dateFinContrat      DateTime?
+  statut              StatutEmploye       @default(actif)
+  salaireBase         Float               @default(0)
+  defPrimeTransport   Float               @default(0)
+  defPrimeLogement    Float               @default(0)
+  defPrimePerformance Float               @default(0)
+  defAutresPrimes     Float               @default(0)
+  defTauxCnss         Float?
+  defTauxImpot        Float?
+  numeroCnss          String?
+  niu                 String?
+  categorie           String?
+  echelon             String?
+  modePaiement        ModePaiement?
+  banque              String?
+  rib                 String?
+  mobileMoney         String?
+  userId              Int?                @unique
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  deletedAt           DateTime?
 
-  user           User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
-  presences      Presence[]
-  absences       Absence[]
-  paies          Paie[]
-  competences    Competence[]
-  formations     Formation[]
-  evaluations    Evaluation[]
-  activiteLogs   ActiviteLog[]
-  documents      DocumentRh[]
-  notifications  Notification[]
+  user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  presences     Presence[]
+  absences      Absence[]
+  paies         Paie[]
+  competences   Competence[]
+  formations    Formation[]
+  evaluations   Evaluation[]
+  activiteLogs  ActiviteLog[]
+  documents     DocumentRh[]
+  notifications Notification[]
+  rubriques     EmployeeRubrique[]
+  variablesPaie PayrollVariable[]
 
   @@map("employes")
 }
@@ -188,14 +252,14 @@ model PosteReferentiel {
 }
 
 model Presence {
-  id                   Int            @id @default(autoincrement())
-  employeId            Int
-  date                 DateTime
-  heureEntree          String?
-  heureSortie          String?
-  statut               StatutPresence
-  justification        String?
-  heuresSupplementaires Float         @default(0)
+  id                    Int            @id @default(autoincrement())
+  employeId             Int
+  date                  DateTime
+  heureEntree           String?
+  heureSortie           String?
+  statut                StatutPresence
+  justification         String?
+  heuresSupplementaires Float          @default(0)
   deletedAt             DateTime?
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
@@ -224,33 +288,215 @@ model Absence {
 }
 
 model Paie {
-  id                Int        @id @default(autoincrement())
-  employeId         Int
-  mois              String
-  annee             Int
-  salaireBase       Float      @default(0)
-  primeTransport    Float      @default(0)
-  primeLogement     Float      @default(0)
-  primePerformance  Float      @default(0)
-  autresPrimes      Float      @default(0)
-  cnss              Float      @default(0)
-  impot             Float      @default(0)
-  autresRetenues    Float      @default(0)
-  salaireNet        Float?
-  joursTravailles   Int?
-  joursPeriode      Int?
-  statut            StatutPaie @default(en_attente)
-  datePaiement      DateTime?
-  createdAt         DateTime   @default(now())
-  deletedAt         DateTime?
+  id               Int        @id @default(autoincrement())
+  employeId        Int
+  mois             String
+  annee            Int
+  salaireBase      Float      @default(0)
+  primeTransport   Float      @default(0)
+  primeLogement    Float      @default(0)
+  primePerformance Float      @default(0)
+  autresPrimes     Float      @default(0)
+  cnss             Float      @default(0)
+  impot            Float      @default(0)
+  autresRetenues   Float      @default(0)
+  salaireNet       Float?
+  joursTravailles  Int?
+  joursPeriode     Int?
+  statut           StatutPaie @default(en_attente)
+  datePaiement     DateTime?
+  createdAt        DateTime   @default(now())
+  deletedAt        DateTime?
 
-  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  // Moteur v2 (rubriques). Les champs Float ci-dessus restent utilisés par le moteur legacy.
+  periodId          Int?
+  numero            String?      @unique
+  type              TypeBulletin @default(normal)
+  annuleBulletinId  Int?
+  brut              Decimal?     @db.Decimal(14, 2)
+  brutImposable     Decimal?     @db.Decimal(14, 2)
+  netImposable      Decimal?     @db.Decimal(14, 2)
+  totalCotisSal     Decimal?     @db.Decimal(14, 2)
+  totalCotisPat     Decimal?     @db.Decimal(14, 2)
+  netAPayer         Decimal?     @db.Decimal(14, 2)
+  employeSnapshot   Json?
+  employeurSnapshot Json?
+  cumuls            Json?
+  hashSha256        String?
+  validatedAt       DateTime?
+  validatedById     Int?
+  moteur            MoteurPaie   @default(legacy)
+
+  employe         Employe        @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  period          PayrollPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
+  annuleBulletin  Paie?          @relation("ContreBulletin", fields: [annuleBulletinId], references: [id], onDelete: SetNull)
+  contreBulletins Paie[]         @relation("ContreBulletin")
+  lignes          PayslipLine[]
 
   // Unicité (employeId, mois, annee) hors annulés / soft delete : index partiel SQL (migration 20261102120000_audit_security).
   @@index([employeId, mois, annee])
   @@index([annee, mois])
   @@index([employeId])
+  @@index([periodId])
   @@map("paie")
+}
+
+// ─── Moteur de paie v2 ───────────────────────────────────────────────────────
+
+/// Ligne unique (id = 1) : mentions employeur du bulletin.
+model EmployeurSettings {
+  id                   Int      @id @default(1)
+  raisonSociale        String?
+  adresse              String?
+  ville                String?
+  telephone            String?
+  email                String?
+  niu                  String?
+  rccm                 String?
+  numeroCnssEmployeur  String?
+  logoUrl              String?
+  conventionCollective String?
+  updatedAt            DateTime @updatedAt
+
+  @@map("employeur_settings")
+}
+
+/// Rubrique de paie. Les taux et plafonds référencent des PayParameter par code (valeurs datées).
+model PayRule {
+  id               Int                @id @default(autoincrement())
+  code             String             @unique
+  libelle          String
+  type             TypeRubrique
+  ordre            Int                @default(0)
+  imposable        Boolean            @default(false)
+  soumisCnss       Boolean            @default(false)
+  mode             ModeCalculRubrique
+  baseCode         String?
+  tauxSalarialCode String?
+  tauxPatronalCode String?
+  plafondCode      String?
+  baremeCode       String?
+  actif            Boolean            @default(true)
+  description      String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  employeeRubriques EmployeeRubrique[]
+  variables         PayrollVariable[]
+  lignes            PayslipLine[]
+
+  @@index([ordre])
+  @@map("pay_rules")
+}
+
+/// Paramètre daté (taux, plafond, SMIG…). Valeur en vigueur = dateDebut <= date < dateFin.
+model PayParameter {
+  id          Int       @id @default(autoincrement())
+  code        String
+  valeur      Decimal   @db.Decimal(14, 4)
+  dateDebut   DateTime
+  dateFin     DateTime?
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([code, dateDebut])
+  @@index([code])
+  @@map("pay_parameters")
+}
+
+/// Tranche de barème (ex. IRPP). borneMax null = tranche ouverte.
+model TaxBracket {
+  id        Int       @id @default(autoincrement())
+  bareme    String
+  borneMin  Decimal   @db.Decimal(14, 2)
+  borneMax  Decimal?  @db.Decimal(14, 2)
+  taux      Decimal   @db.Decimal(7, 4)
+  dateDebut DateTime
+  dateFin   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([bareme, dateDebut])
+  @@map("tax_brackets")
+}
+
+/// Élément fixe d'un salarié (prime récurrente, indemnité…).
+model EmployeeRubrique {
+  id        Int       @id @default(autoincrement())
+  employeId Int
+  payRuleId Int
+  montant   Decimal?  @db.Decimal(14, 2)
+  taux      Decimal?  @db.Decimal(7, 4)
+  dateDebut DateTime
+  dateFin   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  payRule PayRule @relation(fields: [payRuleId], references: [id], onDelete: Restrict)
+
+  @@index([employeId])
+  @@map("employee_rubriques")
+}
+
+model PayrollPeriod {
+  id          Int               @id @default(autoincrement())
+  annee       Int
+  mois        Int
+  statut      StatutPeriodePaie @default(ouverte)
+  clotureAt   DateTime?
+  clotureById Int?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  bulletins Paie[]
+  variables PayrollVariable[]
+
+  @@unique([annee, mois])
+  @@map("payroll_periods")
+}
+
+/// Variable de paie d'une période (heures sup, absences non payées, avance…).
+model PayrollVariable {
+  id          Int                @id @default(autoincrement())
+  periodId    Int
+  employeId   Int
+  payRuleId   Int
+  quantite    Decimal?           @db.Decimal(10, 2)
+  montant     Decimal?           @db.Decimal(14, 2)
+  source      SourceVariablePaie @default(manuel)
+  commentaire String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  period  PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employe Employe       @relation(fields: [employeId], references: [id], onDelete: Cascade)
+  payRule PayRule       @relation(fields: [payRuleId], references: [id], onDelete: Restrict)
+
+  @@index([periodId, employeId])
+  @@map("payroll_variables")
+}
+
+model PayslipLine {
+  id              Int          @id @default(autoincrement())
+  paieId          Int
+  payRuleId       Int?
+  code            String
+  libelle         String
+  ordre           Int          @default(0)
+  type            TypeRubrique
+  base            Decimal?     @db.Decimal(14, 2)
+  taux            Decimal?     @db.Decimal(7, 4)
+  quantite        Decimal?     @db.Decimal(10, 2)
+  montantSalarial Decimal      @default(0) @db.Decimal(14, 2)
+  montantPatronal Decimal      @default(0) @db.Decimal(14, 2)
+  imposable       Boolean      @default(false)
+
+  paie    Paie     @relation(fields: [paieId], references: [id], onDelete: Cascade)
+  payRule PayRule? @relation(fields: [payRuleId], references: [id], onDelete: SetNull)
+
+  @@index([paieId])
+  @@map("payslip_lines")
 }
 
 model OffreEmploi {
@@ -272,17 +518,17 @@ model OffreEmploi {
 }
 
 model Candidature {
-  id                Int               @id @default(autoincrement())
-  offreId           Int
-  nom               String
-  prenom            String
-  email             String
-  telephone         String?
-  cvPath            String?
-  lettreMotivation  String?
-  statut            StatutCandidature @default(recu)
-  dateCandidature   DateTime          @default(now())
-  deletedAt         DateTime?
+  id               Int               @id @default(autoincrement())
+  offreId          Int
+  nom              String
+  prenom           String
+  email            String
+  telephone        String?
+  cvPath           String?
+  lettreMotivation String?
+  statut           StatutCandidature @default(recu)
+  dateCandidature  DateTime          @default(now())
+  deletedAt        DateTime?
 
   offre OffreEmploi @relation(fields: [offreId], references: [id], onDelete: Cascade)
 
@@ -303,15 +549,15 @@ model Competence {
 }
 
 model Formation {
-  id              Int           @id @default(autoincrement())
-  employeId       Int
-  titre           String
-  type            TypeFormation
-  organisme       String?
-  dateObtention   DateTime
-  dateExpiration  DateTime?
-  fichierPath     String?
-  deletedAt       DateTime?
+  id             Int           @id @default(autoincrement())
+  employeId      Int
+  titre          String
+  type           TypeFormation
+  organisme      String?
+  dateObtention  DateTime
+  dateExpiration DateTime?
+  fichierPath    String?
+  deletedAt      DateTime?
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
 
@@ -319,18 +565,18 @@ model Formation {
 }
 
 model Evaluation {
-  id              Int       @id @default(autoincrement())
-  employeId       Int
-  periode         String
-  noteGlobale     Float?
-  ponctualite     Float?
-  qualiteTravail  Float?
-  travailEquipe   Float?
-  initiative      Float?
-  commentaire     String?
-  evaluateur      String?
-  dateEvaluation  DateTime  @default(now())
-  deletedAt       DateTime?
+  id             Int       @id @default(autoincrement())
+  employeId      Int
+  periode        String
+  noteGlobale    Float?
+  ponctualite    Float?
+  qualiteTravail Float?
+  travailEquipe  Float?
+  initiative     Float?
+  commentaire    String?
+  evaluateur     String?
+  dateEvaluation DateTime  @default(now())
+  deletedAt      DateTime?
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
 
@@ -364,10 +610,17 @@ model User {
   lastLogin    DateTime?
   deletedAt    DateTime?
 
-  notifications Notification[]
+  notifications     Notification[]
   pushSubscriptions PushSubscription[]
-  refreshTokens   RefreshToken[]
-  employe         Employe?
+  refreshTokens     RefreshToken[]
+  employe           Employe?
+
+  depensesDemandees  BudgetDepense[]           @relation("DepenseDemandeur")
+  depensesValideesN1 BudgetDepense[]           @relation("DepenseValideurN1")
+  depensesValidees   BudgetDepense[]           @relation("DepenseValideur")
+  depensesPayees     BudgetDepense[]           @relation("DepensePayeur")
+  piecesJointes      BudgetPieceJointe[]       @relation("PieceJointeUploader")
+  historiqueDepenses BudgetDepenseHistorique[] @relation("DepenseHistoriqueUser")
 
   // Unicité lower(email) hors soft delete : index partiel SQL (migration 20261102120000_audit_security).
   @@index([email])
@@ -375,30 +628,34 @@ model User {
 }
 
 model BudgetCategorie {
-  id          Int      @id @default(autoincrement())
-  code        String
-  libelle     String
-  description String?
-  createdAt   DateTime @default(now())
-  deletedAt   DateTime?
+  id              Int       @id @default(autoincrement())
+  code            String
+  libelle         String
+  description     String?
+  compteSyscohada String?
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
 
   depenses BudgetDepense[]
 
+  // Unicité lower(code) hors soft delete : index partiel SQL (migration finance_p1).
   @@index([code])
   @@map("budget_categories")
 }
 
 model BudgetEnveloppe {
-  id            Int                   @id @default(autoincrement())
-  libelle       String
-  departement   String?
-  annee         Int
-  montantPrevu  Float
-  statut        StatutBudgetEnveloppe @default(actif)
-  notes         String?
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  deletedAt     DateTime?
+  id                 Int                   @id @default(autoincrement())
+  libelle            String
+  departement        String?
+  annee              Int
+  montantPrevu       Decimal               @db.Decimal(14, 2)
+  seuilAlertePct     Int                   @default(80)
+  bloquerDepassement Boolean               @default(false)
+  statut             StatutBudgetEnveloppe @default(actif)
+  notes              String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  deletedAt          DateTime?
 
   depenses BudgetDepense[]
 
@@ -407,35 +664,123 @@ model BudgetEnveloppe {
 }
 
 model BudgetDepense {
-  id              Int                 @id @default(autoincrement())
-  enveloppeId     Int
-  categorieId     Int?
-  libelle         String
-  montant         Float
-  dateDepense     DateTime
-  fournisseur     String?
-  referencePiece  String?
-  commentaire     String?
-  statut          StatutBudgetDepense @default(en_attente)
-  createdAt       DateTime            @default(now())
-  deletedAt       DateTime?
+  id                Int                 @id @default(autoincrement())
+  enveloppeId       Int
+  categorieId       Int?
+  libelle           String
+  montantHt         Decimal             @db.Decimal(14, 2)
+  tauxTva           Decimal             @default(0) @db.Decimal(5, 2)
+  montantTva        Decimal             @default(0) @db.Decimal(14, 2)
+  montantTtc        Decimal             @db.Decimal(14, 2)
+  dateDepense       DateTime
+  /// Texte libre historique ; préférer fournisseurId.
+  fournisseur       String?
+  fournisseurId     Int?
+  referencePiece    String?
+  commentaire       String?
+  statut            StatutBudgetDepense @default(brouillon)
+  modePaiement      ModePaiement?
+  referencePaiement String?
+  datePaiement      DateTime?
+  demandeurId       Int?
+  valideurN1Id      Int?
+  valideurId        Int?
+  payeurId          Int?
+  valideLe          DateTime?
+  motifRefus        String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @default(now()) @updatedAt
+  deletedAt         DateTime?
 
-  enveloppe BudgetEnveloppe  @relation(fields: [enveloppeId], references: [id], onDelete: Cascade)
-  categorie BudgetCategorie? @relation(fields: [categorieId], references: [id], onDelete: SetNull)
+  enveloppe      BudgetEnveloppe           @relation(fields: [enveloppeId], references: [id], onDelete: Restrict)
+  categorie      BudgetCategorie?          @relation(fields: [categorieId], references: [id], onDelete: SetNull)
+  fournisseurRef Fournisseur?              @relation(fields: [fournisseurId], references: [id], onDelete: SetNull)
+  demandeur      User?                     @relation("DepenseDemandeur", fields: [demandeurId], references: [id], onDelete: SetNull)
+  valideurN1     User?                     @relation("DepenseValideurN1", fields: [valideurN1Id], references: [id], onDelete: SetNull)
+  valideur       User?                     @relation("DepenseValideur", fields: [valideurId], references: [id], onDelete: SetNull)
+  payeur         User?                     @relation("DepensePayeur", fields: [payeurId], references: [id], onDelete: SetNull)
+  piecesJointes  BudgetPieceJointe[]
+  historique     BudgetDepenseHistorique[]
 
   @@index([enveloppeId])
   @@index([dateDepense])
+  @@index([statut])
+  @@index([fournisseurId])
   @@map("budget_depenses")
 }
 
+model Fournisseur {
+  id        Int       @id @default(autoincrement())
+  nom       String
+  niu       String?
+  rccm      String?
+  telephone String?
+  email     String?
+  adresse   String?
+  actif     Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  depenses BudgetDepense[]
+
+  @@index([nom])
+  @@map("fournisseurs")
+}
+
+model BudgetPieceJointe {
+  id           Int      @id @default(autoincrement())
+  depenseId    Int
+  url          String
+  nom          String
+  mime         String?
+  taille       Int?
+  uploadedById Int?
+  createdAt    DateTime @default(now())
+
+  depense    BudgetDepense @relation(fields: [depenseId], references: [id], onDelete: Cascade)
+  uploadedBy User?         @relation("PieceJointeUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([depenseId])
+  @@map("budget_pieces_jointes")
+}
+
+model BudgetDepenseHistorique {
+  id          Int                  @id @default(autoincrement())
+  depenseId   Int
+  deStatut    StatutBudgetDepense?
+  versStatut  StatutBudgetDepense
+  userId      Int?
+  commentaire String?
+  createdAt   DateTime             @default(now())
+
+  depense BudgetDepense @relation(fields: [depenseId], references: [id], onDelete: Cascade)
+  user    User?         @relation("DepenseHistoriqueUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([depenseId])
+  @@map("budget_depense_historique")
+}
+
+/// Ligne unique (id = 1).
+model ParametresFinance {
+  id                  Int       @id @default(1)
+  tauxTvaDefaut       Decimal   @default(18) @db.Decimal(5, 2)
+  seuilJustificatif   Decimal   @default(0) @db.Decimal(14, 2)
+  seuilValidationN2   Decimal   @default(0) @db.Decimal(14, 2)
+  periodeCloseJusquau DateTime?
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  @@map("parametres_finance")
+}
+
 model DocumentRh {
-  id          Int              @id @default(autoincrement())
+  id          Int            @id @default(autoincrement())
   employeId   Int
   titre       String
   type        TypeDocumentRh
   fichierPath String
   taille      Int?
-  createdAt   DateTime         @default(now())
+  createdAt   DateTime       @default(now())
   deletedAt   DateTime?
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
@@ -445,17 +790,17 @@ model DocumentRh {
 }
 
 model Notification {
-  id          Int              @id @default(autoincrement())
-  employeId   Int?
-  userId      Int?
-  titre       String
-  message     String
-  type        TypeNotification
-  meta        Json?
-  lu          Boolean          @default(false)
-  luAt        DateTime?
-  createdAt   DateTime         @default(now())
-  deletedAt   DateTime?
+  id        Int              @id @default(autoincrement())
+  employeId Int?
+  userId    Int?
+  titre     String
+  message   String
+  type      TypeNotification
+  meta      Json?
+  lu        Boolean          @default(false)
+  luAt      DateTime?
+  createdAt DateTime         @default(now())
+  deletedAt DateTime?
 
   employe Employe? @relation(fields: [employeId], references: [id], onDelete: Cascade)
   user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -467,11 +812,11 @@ model Notification {
 }
 
 model PushSubscription {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   userId    Int
-  endpoint  String   @unique
+  endpoint  String    @unique
   keys      Json
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

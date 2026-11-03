@@ -7,8 +7,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { BudgetSyntheseResponse } from './types/budget.types';
 
 const STATUTS_REALISES: StatutBudgetDepense[] = [
-  StatutBudgetDepense.approuve,
-  StatutBudgetDepense.paye,
+  StatutBudgetDepense.validee,
+  StatutBudgetDepense.payee,
 ];
 
 @Injectable()
@@ -26,21 +26,27 @@ export class SyntheseService {
           statut: { in: STATUTS_REALISES },
           enveloppe: { annee, deletedAt: null, statut: StatutBudgetEnveloppe.actif },
         },
-        select: { enveloppeId: true, montant: true },
+        select: { enveloppeId: true, montantTtc: true },
       }),
     ]);
 
-    const totalPrevu = enveloppes.reduce((sum, env) => sum + env.montantPrevu, 0);
+    const totalPrevu = enveloppes.reduce(
+      (sum, env) => sum + env.montantPrevu.toNumber(),
+      0,
+    );
 
     const realiseByEnveloppe = new Map<number, number>();
 
     for (const depense of depensesRealisees) {
       const current = realiseByEnveloppe.get(depense.enveloppeId) ?? 0;
-      realiseByEnveloppe.set(depense.enveloppeId, current + depense.montant);
+      realiseByEnveloppe.set(
+        depense.enveloppeId,
+        current + depense.montantTtc.toNumber(),
+      );
     }
 
     const totalRealise = depensesRealisees.reduce(
-      (sum, dep) => sum + dep.montant,
+      (sum, dep) => sum + dep.montantTtc.toNumber(),
       0,
     );
 
@@ -51,15 +57,13 @@ export class SyntheseService {
 
     const parEnveloppe = enveloppes.map((env) => {
       const realise = realiseByEnveloppe.get(env.id) ?? 0;
-      const taux =
-        env.montantPrevu > 0
-          ? ((realise / env.montantPrevu) * 100).toFixed(1)
-          : '0.0';
+      const prevu = env.montantPrevu.toNumber();
+      const taux = prevu > 0 ? ((realise / prevu) * 100).toFixed(1) : '0.0';
 
       return {
         id: env.id,
         libelle: env.libelle,
-        montantPrevu: env.montantPrevu,
+        montantPrevu: prevu,
         realise,
         taux,
       };

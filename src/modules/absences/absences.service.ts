@@ -19,7 +19,11 @@ import {
   startOfDayUTC,
 } from '../../common/utils/date.util';
 import { NotificationsService } from '../notifications/notifications.service';
-import { requireEmployeForUser } from '../../common/employe-link/employe-link';
+import {
+  findUserIdForEmploye,
+  requireEmployeForUser,
+} from '../../common/employe-link/employe-link';
+import { assertNotSelf } from '../../common/self-action/self-action';
 import { PrismaService } from '../../prisma/prisma.service';
 import { absenceBusinessDays, computeLeaveBalance } from './leave-balance';
 import { CreateAbsenceDto } from './dto/create-absence.dto';
@@ -30,6 +34,8 @@ import {
   AbsenceWithEmploye,
   absenceWithEmployeInclude,
 } from './types/absence-with-employe.type';
+
+const VALIDER_SA_DEMANDE = 'approuver ou refuser votre propre demande d\'absence';
 
 @Injectable()
 export class AbsencesService {
@@ -66,9 +72,18 @@ export class AbsencesService {
     return absence;
   }
 
-  async create(dto: CreateAbsenceDto): Promise<AbsenceWithEmploye> {
+  /** Demande faite depuis « Mon espace » : toujours sur sa propre fiche, toujours en attente. */
+  async createMine(userId: number, dto: CreateAbsenceDto): Promise<AbsenceWithEmploye> {
+    const employe = await this.findEmployeByUserId(userId);
+    return this.create({ ...dto, employeId: employe.id, statut: StatutAbsence.en_attente });
+  }
+
+  async create(dto: CreateAbsenceDto, actorUserId?: number): Promise<AbsenceWithEmploye> {
     const employe = await this.getEmployeOrThrow(dto.employeId);
     const statut = dto.statut ?? StatutAbsence.en_attente;
+    if (actorUserId !== undefined && statut !== StatutAbsence.en_attente) {
+      await assertNotSelf(this.prisma, actorUserId, dto.employeId, VALIDER_SA_DEMANDE);
+    }
     const dateDebut = parseDateOnly(dto.dateDebut);
     const dateFin = parseDateOnly(dto.dateFin);
 
@@ -94,6 +109,8 @@ export class AbsencesService {
 
     if (absence.statut === StatutAbsence.en_attente) {
       const nom = `${absence.employe.prenom} ${absence.employe.nom}`;
+      // Un RH demandeur n'est pas notifié de sa propre demande : ce sont les autres RH qui la traitent.
+      const demandeurUserId = await findUserIdForEmploye(this.prisma, absence.employeId);
       await this.notificationsService.safeNotifyRhTeam(
         'Nouvelle demande d\'absence',
         `${nom} a soumis une demande (${this.formatTypeAbsence(absence.typeAbsence)}) du ${this.formatDate(absence.dateDebut)} au ${this.formatDate(absence.dateFin)}.`,
@@ -103,15 +120,23 @@ export class AbsencesService {
           employeId: absence.employeId,
           statut: absence.statut,
         },
+        demandeurUserId ? [demandeurUserId] : [],
       );
     }
 
     return absence;
   }
 
-  async update(id: number, dto: UpdateAbsenceDto): Promise<AbsenceWithEmploye> {
+  async update(
+    id: number,
+    dto: UpdateAbsenceDto,
+    actorUserId?: number,
+  ): Promise<AbsenceWithEmploye> {
     const existing = await this.findOne(id);
     const employe = await this.getEmployeOrThrow(dto.employeId ?? existing.employeId);
+    if (actorUserId !== undefined && dto.statut !== undefined && dto.statut !== existing.statut) {
+      await assertNotSelf(this.prisma, actorUserId, employe.id, VALIDER_SA_DEMANDE);
+    }
 
     const dateDebut =
       dto.dateDebut !== undefined ? parseDateOnly(dto.dateDebut) : existing.dateDebut;

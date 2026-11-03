@@ -4,6 +4,8 @@ export type UserPayload = Omit<User, 'passwordHash'>;
 
 /** Profil renvoyé au client (login, /auth/me) avec fiche RH liée si employé. */
 export type UserMePayload = UserPayload & {
+  /** Vrai si le compte (staff compris) a une fiche employé : accès à « Mon espace employé ». */
+  hasEmployeProfile?: boolean;
   employeId?: number | null;
   matricule?: string | null;
   poste?: string | null;

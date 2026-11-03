@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,8 +11,13 @@ import { ActiviteService } from '../activite/activite.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   findEmployeForUser,
+  NO_EMPLOYE_PROFILE_MESSAGE,
   normalizeEmail,
 } from '../../common/employe-link/employe-link';
+import {
+  isOwnEmploye,
+  SELF_EDITABLE_EMPLOYE_FIELDS,
+} from '../../common/self-action/self-action';
 import { SupabaseStorageService } from '../supabase/supabase-storage.service';
 import { CreateEmployeDto } from './dto/create-employe.dto';
 import { QueryEmployesDto } from './dto/query-employes.dto';
@@ -22,6 +28,16 @@ import {
   DepartementCount,
   EmployesStatsResponse,
 } from './types/employes-stats.type';
+
+function comparable(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  if (typeof value === 'number' || (typeof value === 'object' && 'toNumber' in value)) {
+    return String(Number(value));
+  }
+  return String(value).trim().toLowerCase();
+}
 
 @Injectable()
 export class EmployesService {
@@ -56,9 +72,7 @@ export class EmployesService {
     const employe = await findEmployeForUser(this.prisma, { id: userId });
 
     if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
+      throw new NotFoundException(NO_EMPLOYE_PROFILE_MESSAGE);
     }
 
     return this.ensureMatricule(employe);
@@ -161,6 +175,39 @@ export class EmployesService {
       data: this.toCreateInput(dto),
     });
     return this.ensureMatricule(employe);
+  }
+
+  /**
+   * Un membre du staff qui modifie SA propre fiche via les routes RH ne peut toucher
+   * qu'aux champs de contact (pas de rémunération, statut, matricule…).
+   */
+  async assertSelfEditAllowed(
+    actorUserId: number,
+    id: number,
+    dto: UpdateEmployeDto | 'delete',
+  ): Promise<void> {
+    if (!(await isOwnEmploye(this.prisma, actorUserId, id))) return;
+    if (dto === 'delete') {
+      throw new ForbiddenException(
+        'Vous ne pouvez pas archiver votre propre fiche : un autre membre RH ou administrateur doit le faire.',
+      );
+    }
+    const allowed: readonly string[] = SELF_EDITABLE_EMPLOYE_FIELDS;
+    const current = (await this.findOne(id)) as unknown as Record<string, unknown>;
+    // Le formulaire RH renvoie toute la fiche : seuls les champs réellement modifiés comptent.
+    const refused = Object.entries(dto)
+      .filter(
+        ([key, value]) =>
+          value !== undefined &&
+          !allowed.includes(key) &&
+          comparable(value) !== comparable(current[key]),
+      )
+      .map(([key]) => key);
+    if (refused.length > 0) {
+      throw new ForbiddenException(
+        `Sur votre propre fiche, seuls ${allowed.join(', ')} sont modifiables. Champs refusés : ${refused.join(', ')}. Un autre membre RH ou administrateur doit faire ce changement.`,
+      );
+    }
   }
 
   async update(id: number, dto: UpdateEmployeDto): Promise<Employe> {

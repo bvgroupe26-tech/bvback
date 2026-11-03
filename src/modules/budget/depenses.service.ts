@@ -51,11 +51,12 @@ export class DepensesService {
         enveloppeId: dto.enveloppeId,
         categorieId: dto.categorieId ?? null,
         libelle: dto.libelle,
-        montant: dto.montant,
+        montantHt: dto.montant,
+        montantTtc: dto.montant,
         dateDepense: parseDateOnly(dto.dateDepense),
         fournisseur: dto.fournisseur,
         referencePiece: dto.referencePiece,
-        statut: dto.statut ?? StatutBudgetDepense.en_attente,
+        statut: dto.statut ?? StatutBudgetDepense.soumise,
         commentaire: dto.commentaire,
       },
       include: depenseWithRelationsInclude,
@@ -122,7 +123,11 @@ export class DepensesService {
           : { connect: { id: dto.categorieId } };
     }
     if (dto.libelle !== undefined) data.libelle = dto.libelle;
-    if (dto.montant !== undefined) data.montant = dto.montant;
+    if (dto.montant !== undefined) {
+      data.montantHt = dto.montant;
+      data.montantTva = 0;
+      data.montantTtc = dto.montant;
+    }
     if (dto.dateDepense !== undefined) {
       data.dateDepense = parseDateOnly(dto.dateDepense);
     }

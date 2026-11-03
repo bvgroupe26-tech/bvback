@@ -43,7 +43,7 @@ export class CreateDepenseDto {
 
   @ApiProperty({
     example: 325000,
-    description: 'Montant engagé en FCFA (hors taxes selon convention interne).',
+    description: 'Montant TTC en FCFA (enregistré en montantTtc ; TVA à 0 tant que la saisie HT/TVA n’existe pas).',
   })
   @Type(() => Number)
   @IsNumber()
@@ -75,9 +75,9 @@ export class CreateDepenseDto {
 
   @ApiPropertyOptional({
     enum: StatutBudgetDepense,
-    example: StatutBudgetDepense.en_attente,
+    example: StatutBudgetDepense.soumise,
     description:
-      'Circuit de validation : en attente, approuvée, refusée ou marquée comme payée.',
+      'Circuit de validation : brouillon, soumise, validée (N1/N2), refusée, payée ou annulée.',
   })
   @IsOptional()
   @IsEnum(StatutBudgetDepense)

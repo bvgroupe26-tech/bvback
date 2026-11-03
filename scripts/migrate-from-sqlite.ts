@@ -514,6 +514,13 @@ function transformBudgetEnveloppe(
   };
 }
 
+const LEGACY_STATUT_DEPENSE: Record<string, Prisma.BudgetDepenseCreateManyInput['statut']> = {
+  en_attente: 'soumise',
+  approuve: 'validee',
+  refuse: 'refusee',
+  paye: 'payee',
+};
+
 function transformBudgetDepense(
   row: SqliteRow,
 ): Prisma.BudgetDepenseCreateManyInput | null {
@@ -522,13 +529,13 @@ function transformBudgetDepense(
     enveloppeId: parseIntId(col(row, 'enveloppe_id', 'enveloppeId'), 'enveloppe_id'),
     categorieId: parseNullableIntId(col(row, 'categorie_id', 'categorieId')),
     libelle: parseRequiredString(col(row, 'libelle'), 'libelle'),
-    montant: parseNumber(col(row, 'montant'), 0),
+    montantHt: parseNumber(col(row, 'montant'), 0),
+    montantTtc: parseNumber(col(row, 'montant'), 0),
     dateDepense: parseRequiredDate(col(row, 'date_depense', 'dateDepense'), 'date_depense'),
     fournisseur: parseNullableString(col(row, 'fournisseur')),
     referencePiece: parseNullableString(col(row, 'reference_piece', 'referencePiece')),
     commentaire: parseNullableString(col(row, 'commentaire')),
-    statut: (parseNullableString(col(row, 'statut')) ??
-      'en_attente') as Prisma.BudgetDepenseCreateManyInput['statut'],
+    statut: LEGACY_STATUT_DEPENSE[parseNullableString(col(row, 'statut')) ?? 'en_attente'] ?? 'soumise',
     createdAt: parseRequiredDate(col(row, 'created_at', 'createdAt'), 'created_at'),
   };
 }

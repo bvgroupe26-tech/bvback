@@ -234,7 +234,7 @@ export class BudgetController {
   @Put('depenses/:id')
   @ApiOperation({
     summary: 'Mettre à jour une dépense',
-    description: 'Mise à jour partielle — ex. { "statut": "approuve" } seul.',
+    description: 'Mise à jour partielle — ex. { "statut": "validee" } seul.',
   })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiBody({ type: UpdateDepenseDto })

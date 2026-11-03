@@ -77,6 +77,25 @@ export class AbsencesController {
     return this.absencesService.findAll(query);
   }
 
+  @Post('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ body: true, staff: [] })
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Demander une absence pour soi',
+    description: 'Toujours sur la fiche du compte connecté (staff compris), statut en_attente.',
+  })
+  @ApiBody({ type: CreateAbsenceDto })
+  @ApiCreatedDataResponse('Demande créée')
+  @ApiBadRequestResponse()
+  @ApiAuthResponses()
+  createMine(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: CreateAbsenceDto,
+  ): Promise<AbsenceWithEmploye> {
+    return this.absencesService.createMine(user.id, dto);
+  }
+
   @Post()
   @Roles('admin', 'rh', 'manager', 'employee')
   @EmployeeScope({ body: true })
@@ -87,8 +106,11 @@ export class AbsencesController {
   @ApiNotFoundResponse('Employé')
   @ApiBadRequestResponse()
   @ApiAuthResponses()
-  create(@Body() dto: CreateAbsenceDto): Promise<AbsenceWithEmploye> {
-    return this.absencesService.create(dto);
+  create(
+    @CurrentUser() user: UserPayload,
+    @Body() dto: CreateAbsenceDto,
+  ): Promise<AbsenceWithEmploye> {
+    return this.absencesService.create(dto, user.id);
   }
 
   @Put(':id')
@@ -100,10 +122,11 @@ export class AbsencesController {
   @ApiBadRequestResponse()
   @ApiAuthResponses()
   update(
+    @CurrentUser() user: UserPayload,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAbsenceDto,
   ): Promise<AbsenceWithEmploye> {
-    return this.absencesService.update(id, dto);
+    return this.absencesService.update(id, dto, user.id);
   }
 
   @Post(':id/delete')

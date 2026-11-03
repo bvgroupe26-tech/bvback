@@ -49,13 +49,16 @@ export async function findEmployeForUser(
   }
 }
 
+export const NO_EMPLOYE_PROFILE_MESSAGE =
+  'Aucune fiche employé liée à ce compte : demandez à la RH de rattacher votre fiche.';
+
 export async function requireEmployeForUser(
   prisma: PrismaService,
   userId: number,
 ): Promise<Employe> {
   const employe = await findEmployeForUser(prisma, { id: userId });
   if (!employe) {
-    throw new NotFoundException('Aucun employé associé à ce compte utilisateur');
+    throw new NotFoundException(NO_EMPLOYE_PROFILE_MESSAGE);
   }
   return employe;
 }

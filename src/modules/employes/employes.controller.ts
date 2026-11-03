@@ -213,10 +213,12 @@ export class EmployesController {
   @ApiNotFoundResponse('Employé')
   @ApiBadRequestResponse()
   @ApiAuthResponses()
-  update(
+  async update(
+    @CurrentUser() user: UserPayload,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeDto,
   ): Promise<Employe> {
+    await this.employesService.assertSelfEditAllowed(user.id, id, dto);
     return this.employesService.update(id, dto);
   }
 
@@ -256,7 +258,11 @@ export class EmployesController {
   @ApiNoContentResponse()
   @ApiNotFoundResponse('Employé')
   @ApiAuthResponses()
-  async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
+  async remove(
+    @CurrentUser() user: UserPayload,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<void> {
+    await this.employesService.assertSelfEditAllowed(user.id, id, 'delete');
     await this.employesService.remove(id);
   }
 }

@@ -28,7 +28,8 @@
     "migrate:sqlite": "ts-node scripts/migrate-from-sqlite.ts",
     "test:smoke": "ts-node scripts/smoke-api.ts",
     "vapid:generate": "node -e \"const w=require('web-push');const k=w.generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+JSON.stringify(k.publicKey));console.log('VAPID_PRIVATE_KEY='+JSON.stringify(k.privateKey));\"",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "seed:payroll": "ts-node prisma/seed-payroll.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -54,11 +55,14 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "cookie-parser": "^1.4.7",
+    "decimal.js": "^10.6.0",
     "helmet": "^8.1.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
+    "pdfkit": "^0.20.2",
     "prisma": "^6.9.0",
+    "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typescript": "^5.7.3",
@@ -72,6 +76,8 @@
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.1",
     "@types/jest": "^29.5.14",
+    "@types/pdfkit": "^0.17.7",
+    "@types/qrcode": "^1.5.6",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
     "eslint": "^9.18.0",

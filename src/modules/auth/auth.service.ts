@@ -106,6 +106,7 @@ export class AuthService {
     if (!employe) {
       return {
         ...user,
+        hasEmployeProfile: false,
         employeId: null,
         matricule: null,
         poste: null,
@@ -116,6 +117,7 @@ export class AuthService {
 
     return {
       ...user,
+      hasEmployeProfile: true,
       employeId: employe.id,
       matricule: employe.matricule,
       poste: employe.poste,

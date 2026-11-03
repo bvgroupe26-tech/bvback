@@ -26,7 +26,7 @@ export class QueryDepensesDto {
 
   @ApiPropertyOptional({
     enum: StatutBudgetDepense,
-    example: StatutBudgetDepense.approuve,
+    example: StatutBudgetDepense.validee,
     description: 'Filtre selon l’étape du workflow de validation ou du paiement.',
   })
   @IsOptional()

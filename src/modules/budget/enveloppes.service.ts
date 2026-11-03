@@ -20,8 +20,13 @@ export type EnveloppeWithMontants = EnveloppeWithCount & {
 };
 
 const STATUTS_REALISES: StatutBudgetDepense[] = [
-  StatutBudgetDepense.approuve,
-  StatutBudgetDepense.paye,
+  StatutBudgetDepense.validee,
+  StatutBudgetDepense.payee,
+];
+
+const STATUTS_EN_ATTENTE: StatutBudgetDepense[] = [
+  StatutBudgetDepense.soumise,
+  StatutBudgetDepense.validee_n1,
 ];
 
 @Injectable()
@@ -62,7 +67,7 @@ export class EnveloppesService {
         enveloppeId: { in: enveloppes.map((e) => e.id) },
         deletedAt: null,
       },
-      _sum: { montant: true },
+      _sum: { montantTtc: true },
     });
 
     return enveloppes.map((e) => {
@@ -70,9 +75,9 @@ export class EnveloppesService {
       let montantEnAttente = 0;
       for (const row of sums) {
         if (row.enveloppeId !== e.id) continue;
-        const montant = row._sum.montant ?? 0;
+        const montant = row._sum.montantTtc?.toNumber() ?? 0;
         if (STATUTS_REALISES.includes(row.statut)) montantRealise += montant;
-        else if (row.statut === StatutBudgetDepense.en_attente) {
+        else if (STATUTS_EN_ATTENTE.includes(row.statut)) {
           montantEnAttente += montant;
         }
       }
@@ -80,7 +85,7 @@ export class EnveloppesService {
         ...e,
         montantRealise,
         montantEnAttente,
-        ecart: e.montantPrevu - montantRealise,
+        ecart: e.montantPrevu.toNumber() - montantRealise,
       };
     });
   }

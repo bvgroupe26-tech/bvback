@@ -122,15 +122,20 @@ export class NotificationsService {
     });
   }
 
-  /** Notifie tous les comptes admin, RH et manager. */
+  /** Notifie tous les comptes admin, RH et manager, sauf `excludeUserIds` (ex. le demandeur). */
   async notifyRhTeam(
     titre: string,
     message: string,
     type: TypeNotification,
     meta?: NotificationMeta,
+    excludeUserIds: number[] = [],
   ): Promise<number> {
     const staff = await this.prisma.user.findMany({
-      where: { role: { in: RH_ROLES }, isActive: true },
+      where: {
+        role: { in: RH_ROLES },
+        isActive: true,
+        ...(excludeUserIds.length ? { id: { notIn: excludeUserIds } } : {}),
+      },
       select: { id: true },
     });
 
@@ -185,9 +190,10 @@ export class NotificationsService {
     message: string,
     type: TypeNotification,
     meta?: NotificationMeta,
+    excludeUserIds: number[] = [],
   ): Promise<void> {
     try {
-      await this.notifyRhTeam(titre, message, type, meta);
+      await this.notifyRhTeam(titre, message, type, meta, excludeUserIds);
     } catch (error) {
       this.logger.warn(
         'Notification équipe RH non envoyée',
