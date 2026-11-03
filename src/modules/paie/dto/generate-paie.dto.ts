@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { MOIS_REGEX, NormalizeMois } from '../../../common/transforms/normalize-mois.transform';
 
 export class GeneratePaieDto {
   @ApiPropertyOptional({
@@ -19,8 +20,10 @@ export class GeneratePaieDto {
     description:
       'Mois cible pour la génération massive des bulletins (format habituel « 01 »–« 12 »).',
   })
+  @NormalizeMois()
   @IsString()
   @IsNotEmpty()
+  @Matches(MOIS_REGEX, { message: 'mois doit être compris entre "01" et "12"' })
   mois!: string;
 
   @ApiProperty({

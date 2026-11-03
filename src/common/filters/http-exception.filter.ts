@@ -4,8 +4,10 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Prisma } from '@prisma/client';
+import { Request, Response } from 'express';
 
 export interface ApiErrorResponse {
   ok: false;
@@ -14,9 +16,12 @@ export interface ApiErrorResponse {
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Erreur interne du serveur';
@@ -24,8 +29,23 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       message = this.extractMessage(exception);
-    } else if (exception instanceof Error) {
-      message = exception.message;
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError && exception.code === 'P2002') {
+      status = HttpStatus.CONFLICT;
+      message = 'Cet enregistrement existe déjà';
+    } else if (exception instanceof Prisma.PrismaClientKnownRequestError && exception.code === 'P2025') {
+      status = HttpStatus.NOT_FOUND;
+      message = 'Ressource introuvable';
+    }
+
+    // Le détail des erreurs serveur (Prisma, stack) reste dans les logs, jamais dans la réponse.
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      this.logger.error(
+        `${request?.method} ${request?.originalUrl ?? request?.url} → ${status}`,
+        exception instanceof Error ? exception.stack : String(exception),
+      );
+      if (status === HttpStatus.INTERNAL_SERVER_ERROR) {
+        message = 'Erreur interne du serveur';
+      }
     }
 
     const body: ApiErrorResponse = {

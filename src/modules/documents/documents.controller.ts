@@ -18,6 +18,8 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { EmployeeScope } from '../../common/guards/employee-scope.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { DocumentsService } from './documents.service';
@@ -26,6 +28,7 @@ import * as path from 'path';
 
 @ApiTags('documents')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager', 'employee')
 @Controller('documents')
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
@@ -42,6 +45,7 @@ export class DocumentsController {
   }
 
   @Get(':id/download')
+  @EmployeeScope({ resource: 'document', staff: ['admin', 'rh'] })
   @ApiOperation({
     summary: 'Télécharger un document',
     description: 'Télécharge le fichier associé au document RH.',

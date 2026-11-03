@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   Post,
   Req,
@@ -24,15 +23,19 @@ import {
   ApiOkDataResponse,
   ApiCreatedDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { AuthThrottlerGuard } from '../../common/guards/auth-throttler.guard';
+import { UserResponseDto } from '../users/dto/user-response.dto';
 import { REFRESH_TOKEN_COOKIE } from './constants/auth-cookies.constant';
-import { AuthService } from './auth.service';
+import { AuthService, RegisteredEmployee } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { LocalAuthGuard } from './guards/local-auth.guard';
-import { AuthLoginResult, AuthTokenResponse, UserPayload } from './types/auth.types';
+import { AuthTokenResponse, UserPayload } from './types/auth.types';
 import { ActiveSessionDto } from './types/session.types';
 import {
   clearRefreshTokenCookie,
@@ -48,15 +51,18 @@ export class AuthController {
   @Post('login')
   @Public()
   @HttpCode(200)
-  @UseGuards(LocalAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @UseGuards(AuthThrottlerGuard, LocalAuthGuard)
   @ApiOperation({
     summary: 'Connexion',
     description:
-      'Authentification par email et mot de passe. Retourne un access token (7 jours) et place un refresh token HttpOnly en cookie.',
+      'Authentification par email et mot de passe. Retourne un access token court et place un refresh token HttpOnly en cookie. ' +
+      'Limité à 5 tentatives par minute (IP + email).',
   })
   @ApiBody({ type: LoginDto })
   @ApiOkDataResponse('Access token et profil utilisateur')
   @ApiResponse({ status: 401, description: 'Identifiants invalides' })
+  @ApiResponse({ status: 429, description: 'Trop de tentatives' })
   @ApiBadRequestResponse()
   async login(
     @Body() _loginDto: LoginDto,
@@ -73,6 +79,8 @@ export class AuthController {
   @Post('refresh')
   @Public()
   @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @UseGuards(AuthThrottlerGuard)
   @ApiOperation({
     summary: 'Renouveler la session (cookie)',
     description:
@@ -161,84 +169,47 @@ export class AuthController {
   }
 
   @Post('register')
-  @Public()
+  @Roles('admin')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(201)
+  @ApiBearerAuth('JWT')
   @ApiOperation({
-    summary: 'Inscription',
-    description: 'Création de compte RH ou manager uniquement (pas de rôle admin).',
+    summary: 'Créer un compte RH ou manager',
+    description:
+      'Réservé aux administrateurs. N\'ouvre aucune session pour le compte créé (préférer POST /users).',
   })
   @ApiBody({ type: RegisterDto })
-  @ApiCreatedDataResponse('Compte créé avec tokens')
-  @ApiResponse({ status: 403, description: 'Inscription désactivée ou rôle interdit' })
+  @ApiCreatedDataResponse('Compte créé')
   @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
   @ApiBadRequestResponse()
-  async register(
+  @ApiAuthResponses()
+  register(
     @Body() dto: RegisterDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthTokenResponse> {
-    return this.respondWithAuth(
-      this.authService.register(dto, extractSessionMeta(req)),
-      res,
-    );
+    @CurrentUser() creator: UserPayload,
+  ): Promise<UserResponseDto> {
+    return this.authService.register(dto, creator.role);
   }
 
   @Post('register-employee')
-  @Public()
+  @Roles('admin', 'rh')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @UseGuards(AuthThrottlerGuard)
   @HttpCode(201)
-  @ApiOperation({
-    summary: 'Inscription employé',
-    description:
-      'Crée un compte utilisateur (rôle employee) ET une fiche employé RH liée.',
-  })
-  @ApiBody({ type: RegisterEmployeeDto })
-  @ApiCreatedDataResponse('Compte employé créé avec tokens')
-  @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
-  @ApiBadRequestResponse()
-  async registerEmployee(
-    @Body() dto: RegisterEmployeeDto,
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<AuthTokenResponse> {
-    return this.respondWithAuth(
-      this.authService.registerEmployee(dto, extractSessionMeta(req)),
-      res,
-    );
-  }
-
-  /**
-   * Alias de POST /auth/refresh (cookie HttpOnly).
-   * Si un Bearer est envoyé sans cookie, renouvelle l'access token (legacy).
-   */
-  @Post('refresh-token')
-  @Public()
-  @HttpCode(200)
   @ApiBearerAuth('JWT')
   @ApiOperation({
-    summary: 'Rafraîchir la session (alias)',
+    summary: 'Créer un compte employé',
     description:
-      'Préférer POST /auth/refresh. Avec cookie `refresh_token` : rotation refresh. ' +
-      'Sans cookie mais avec Bearer valide : nouvel access token (legacy).',
+      'Réservé à l\'admin et à la RH : crée un compte (rôle employee) et sa fiche RH liée, ' +
+      'ou rattache la fiche existante de même email. N\'ouvre aucune session.',
   })
-  @ApiOkDataResponse('Nouvel access token')
-  @ApiResponse({ status: 401, description: 'Cookie ou Bearer manquant / invalide' })
-  async refreshToken(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-    @Headers('authorization') authorization?: string,
-  ): Promise<AuthTokenResponse> {
-    if (req.cookies[REFRESH_TOKEN_COOKIE]) {
-      return this.refresh(req, res);
-    }
-
-    const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-    if (!bearer) {
-      throw new UnauthorizedException(
-        'Refresh token manquant — utilisez POST /auth/refresh avec credentials: include',
-      );
-    }
-
-    return this.authService.refreshFromBearer(bearer);
+  @ApiBody({ type: RegisterEmployeeDto })
+  @ApiCreatedDataResponse('Compte employé créé')
+  @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
+  @ApiBadRequestResponse()
+  @ApiAuthResponses()
+  registerEmployee(@Body() dto: RegisterEmployeeDto): Promise<RegisteredEmployee> {
+    return this.authService.registerEmployee(dto);
   }
 
   @Get('me')
@@ -248,16 +219,5 @@ export class AuthController {
   @ApiAuthResponses()
   getMe(@CurrentUser() user: UserPayload): Promise<UserPayload> {
     return this.authService.getMe(user.id);
-  }
-
-  private respondWithAuth(
-    resultPromise: Promise<AuthLoginResult>,
-    res: Response,
-  ): Promise<AuthTokenResponse> {
-    return resultPromise.then((result) => {
-      setRefreshTokenCookie(res, result.refreshToken);
-      const { refreshToken: _refreshToken, ...body } = result;
-      return body;
-    });
   }
 }

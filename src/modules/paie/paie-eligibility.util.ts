@@ -1,4 +1,5 @@
 import { Employe, StatutEmploye } from '@prisma/client';
+import { monthBoundsUTC, parseDateOnly } from '../../common/utils/date.util';
 
 export type PaieSkipReason =
   | 'deja_existant'
@@ -48,22 +49,16 @@ export function createEmptyPaieSkipSummary(): PaieSkipSummary {
   };
 }
 
+/** Jour civil d'une date « jour » stockée à minuit UTC. */
 export function startOfDay(date: Date): Date {
-  const normalized = new Date(date);
-  normalized.setHours(0, 0, 0, 0);
-  return normalized;
+  return parseDateOnly(date);
 }
 
 export function getPaiePeriodBounds(
   mois: string,
   annee: number,
 ): { start: Date; end: Date } {
-  const month = parseInt(mois, 10);
-  const start = new Date(annee, month - 1, 1);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(annee, month, 0);
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
+  return monthBoundsUTC(annee, parseInt(mois, 10));
 }
 
 export function computePaiePeriodOverlap(
@@ -80,7 +75,7 @@ export function computePaiePeriodOverlap(
     mois,
     annee,
   );
-  const joursPeriode = periodEnd.getDate();
+  const joursPeriode = periodEnd.getUTCDate();
 
   let effectiveStart = periodStart;
   let effectiveEnd = periodEnd;
@@ -238,7 +233,7 @@ export function checkPaieEligibility(
         return {
           eligible: false,
           reason: 'non_embauche',
-          message: `Embauché le ${embauche.toLocaleDateString('fr-FR')} — hors période ${mois}/${annee}`,
+          message: `Embauché le ${embauche.toLocaleDateString('fr-FR', { timeZone: 'UTC' })} — hors période ${mois}/${annee}`,
         };
       }
     }
@@ -250,7 +245,7 @@ export function checkPaieEligibility(
         return {
           eligible: false,
           reason: 'depart_avant_periode',
-          message: `Contrat terminé le ${fin.toLocaleDateString('fr-FR')} — avant ${mois}/${annee}`,
+          message: `Contrat terminé le ${fin.toLocaleDateString('fr-FR', { timeZone: 'UTC' })} — avant ${mois}/${annee}`,
         };
       }
     }

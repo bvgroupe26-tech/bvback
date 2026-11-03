@@ -1,7 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { StatutPaie } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Matches, Min } from 'class-validator';
+import { MOIS_REGEX, NormalizeMois } from '../../../common/transforms/normalize-mois.transform';
 
 export class QueryPaieDto {
   @ApiPropertyOptional({
@@ -9,7 +10,9 @@ export class QueryPaieDto {
     description: 'Filtre sur le mois du bulletin (même convention que lors de la création).',
   })
   @IsOptional()
+  @NormalizeMois()
   @IsString()
+  @Matches(MOIS_REGEX, { message: 'mois doit être compris entre "01" et "12"' })
   mois?: string;
 
   @ApiPropertyOptional({

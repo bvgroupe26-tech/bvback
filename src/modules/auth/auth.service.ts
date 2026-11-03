@@ -1,30 +1,33 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
-  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { User, UserRole } from '@prisma/client';
+import { Employe, User, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { normalizeEmail } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActiviteService } from '../activite/activite.service';
 import { EmployesService } from '../employes/employes.service';
+import { UserResponseDto } from '../users/dto/user-response.dto';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from './dto/register.dto';
 import { RegisterEmployeeDto } from './dto/register-employee.dto';
 import { RefreshTokenService } from './refresh-token.service';
 import {
   AuthLoginResult,
-  AuthTokenResponse,
   JwtPayload,
   UserMePayload,
   UserPayload,
 } from './types/auth.types';
 import { ActiveSessionDto, SessionMeta } from './types/session.types';
 import { omitPasswordHash } from './utils/omit-password.util';
+
+export type RegisteredEmployee = {
+  user: UserPayload & { employeId: number };
+  employe: Employe;
+};
 
 @Injectable()
 export class AuthService {
@@ -34,7 +37,6 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
     private readonly activiteService: ActiviteService,
     private readonly employesService: EmployesService,
     private readonly refreshTokenService: RefreshTokenService,
@@ -70,34 +72,19 @@ export class AuthService {
     return this.issueTokens(user, meta);
   }
 
-  async register(dto: RegisterDto, meta: SessionMeta): Promise<AuthLoginResult> {
-    this.assertRegistrationAllowed();
-    this.assertRoleNotAdmin(dto.role);
-
-    const existing = await this.usersService.findByEmail(dto.email);
-
-    if (existing) {
-      throw new ConflictException('Un compte existe déjà avec cet email');
-    }
-
-    const created = await this.usersService.create({
-      email: dto.email,
-      password: dto.password,
-      nom: dto.nom,
-      prenom: dto.prenom,
-      role: dto.role,
-      salaireBase: dto.salaireBase,
-    });
-
-    const user = await this.usersService.findById(created.id);
-
-    if (!user) {
-      throw new InternalServerErrorException(
-        'Utilisateur créé introuvable après inscription',
-      );
-    }
-
-    return this.login(omitPasswordHash(user), meta);
+  /** Création d'un compte RH / manager par un admin : aucune session n'est ouverte pour le compte créé. */
+  register(dto: RegisterDto, creatorRole: UserRole): Promise<UserResponseDto> {
+    return this.usersService.create(
+      {
+        email: dto.email,
+        password: dto.password,
+        nom: dto.nom,
+        prenom: dto.prenom,
+        role: dto.role,
+        salaireBase: dto.salaireBase,
+      },
+      creatorRole,
+    );
   }
 
   async getMe(userId: number): Promise<UserMePayload> {
@@ -111,25 +98,10 @@ export class AuthService {
   }
 
   private async enrichUserProfile(user: UserPayload): Promise<UserMePayload> {
-    const resolved = await this.employesService.resolveEmployeForUser({
+    const employe = await this.employesService.findEmployeForUser({
+      id: user.id,
       email: user.email,
-      nom: user.nom,
-      prenom: user.prenom,
-      role: user.role,
     });
-
-    const employe = resolved
-      ? await this.prisma.employe.findFirst({
-          where: { id: resolved.id, deletedAt: null },
-          select: {
-            id: true,
-            matricule: true,
-            poste: true,
-            departement: true,
-            avatar: true,
-          },
-        })
-      : null;
 
     if (!employe) {
       return {
@@ -152,11 +124,13 @@ export class AuthService {
     };
   }
 
-  async registerEmployee(
-    dto: RegisterEmployeeDto,
-    meta: SessionMeta,
-  ): Promise<AuthLoginResult> {
-    const existing = await this.usersService.findByEmail(dto.email);
+  /**
+   * Création par la RH d'un compte employé et de sa fiche liée (ou rattachement à la
+   * fiche existante de même email). Aucune session n'est ouverte pour le compte créé.
+   */
+  async registerEmployee(dto: RegisterEmployeeDto): Promise<RegisteredEmployee> {
+    const email = normalizeEmail(dto.email);
+    const existing = await this.usersService.findByEmail(email);
 
     if (existing) {
       throw new ConflictException('Un compte existe déjà avec cet email');
@@ -164,10 +138,10 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, this.bcryptRounds);
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    const { user, employe } = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          email: dto.email,
+          email,
           passwordHash,
           nom: dto.nom,
           prenom: dto.prenom,
@@ -175,11 +149,29 @@ export class AuthService {
         },
       });
 
-      const employe = await tx.employe.create({
+      const orphan = await tx.employe.findFirst({
+        where: {
+          deletedAt: null,
+          userId: null,
+          email: { equals: email, mode: 'insensitive' },
+        },
+        orderBy: { id: 'asc' },
+      });
+
+      if (orphan) {
+        const employe = await tx.employe.update({
+          where: { id: orphan.id },
+          data: { userId: user.id },
+        });
+        return { user, employe };
+      }
+
+      const created = await tx.employe.create({
         data: {
           nom: dto.nom,
           prenom: dto.prenom,
-          email: dto.email,
+          email,
+          userId: user.id,
           telephone: dto.telephone,
           adresse: dto.adresse,
           poste: dto.poste,
@@ -192,65 +184,24 @@ export class AuthService {
         },
       });
 
-      await tx.employe.update({
-        where: { id: employe.id },
-        data: { matricule: this.formatMatricule(employe.id) },
+      const employe = await tx.employe.update({
+        where: { id: created.id },
+        data: { matricule: this.formatMatricule(created.id) },
       });
 
-      return user;
+      return { user, employe };
     });
 
     await this.activiteService.log(
       'inscription_employe',
-      `Nouvel employé inscrit : ${dto.nom} ${dto.prenom} (${dto.email})`,
-      null,
+      `Compte employé créé : ${dto.nom} ${dto.prenom} (${email})`,
+      employe.id,
     );
 
-    const user = await this.usersService.findById(result.id);
-
-    if (!user) {
-      throw new InternalServerErrorException(
-        'Utilisateur créé introuvable après inscription',
-      );
-    }
-
-    return this.login(omitPasswordHash(user), meta);
-  }
-
-  /** @deprecated Préférer POST /auth/refresh (cookie HttpOnly). */
-  async refreshToken(userId: number): Promise<AuthTokenResponse> {
-    const user = await this.usersService.findById(userId);
-
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur introuvable');
-    }
-
-    const accessToken = await this.signAccessToken({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      nom: user.nom,
-      prenom: user.prenom,
-    });
-
     return {
-      accessToken,
-      access_token: accessToken,
-      user: await this.enrichUserProfile(omitPasswordHash(user)),
+      user: { ...omitPasswordHash(user), employeId: employe.id },
+      employe,
     };
-  }
-
-  /** Legacy : nouvel access token à partir d'un Bearer encore valide (sans rotation refresh). */
-  async refreshFromBearer(bearerToken: string): Promise<AuthTokenResponse> {
-    let payload: JwtPayload;
-
-    try {
-      payload = await this.jwtService.verifyAsync<JwtPayload>(bearerToken);
-    } catch {
-      throw new UnauthorizedException('Access token invalide ou expiré');
-    }
-
-    return this.refreshToken(payload.sub);
   }
 
   async refreshFromCookie(
@@ -262,8 +213,9 @@ export class AuthService {
 
     const user = await this.usersService.findById(userId);
 
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur introuvable');
+    if (!user || user.isActive === false) {
+      await this.refreshTokenService.revokeAllForUser(userId);
+      throw new UnauthorizedException('Utilisateur introuvable ou désactivé');
     }
 
     const accessToken = await this.signAccessToken({
@@ -337,22 +289,5 @@ export class AuthService {
 
   private formatMatricule(id: number): string {
     return `EMP-${String(id).padStart(6, '0')}`;
-  }
-
-  private assertRegistrationAllowed(): void {
-    const disabled =
-      this.configService.get<string>('AUTH_DISABLE_REGISTRATION') === '1';
-
-    if (disabled) {
-      throw new ForbiddenException('L\'inscription est désactivée');
-    }
-  }
-
-  private assertRoleNotAdmin(role: UserRole): void {
-    if (role === UserRole.admin) {
-      throw new ForbiddenException(
-        'La création d\'un compte administrateur via l\'API est interdite',
-      );
-    }
   }
 }

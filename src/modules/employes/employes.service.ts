@@ -8,10 +8,15 @@ import { Employe, Prisma, StatutEmploye, UserRole } from '@prisma/client';
 import * as path from 'path';
 import { ActiviteService } from '../activite/activite.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  findEmployeForUser,
+  normalizeEmail,
+} from '../../common/employe-link/employe-link';
 import { SupabaseStorageService } from '../supabase/supabase-storage.service';
 import { CreateEmployeDto } from './dto/create-employe.dto';
 import { QueryEmployesDto } from './dto/query-employes.dto';
 import { UpdateEmployeDto } from './dto/update-employe.dto';
+import { UpdateEmployeMeDto } from './dto/update-employe-me.dto';
 import {
   ContratCount,
   DepartementCount,
@@ -48,13 +53,7 @@ export class EmployesService {
   }
 
   async findByUserId(userId: number): Promise<Employe> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.resolveEmployeForUser(user);
+    const employe = await findEmployeForUser(this.prisma, { id: userId });
 
     if (!employe) {
       throw new NotFoundException(
@@ -65,18 +64,21 @@ export class EmployesService {
     return this.ensureMatricule(employe);
   }
 
-  /** Lie ou crée une fiche employé pour admin / RH / manager (même email que le compte User). */
-  async resolveEmployeForUser(user: {
-    id?: number;
+  /** Lecture seule (hors rattachement par email) : ne crée jamais de fiche. */
+  findEmployeForUser(user: { id: number; email?: string | null }): Promise<Employe | null> {
+    return findEmployeForUser(this.prisma, user);
+  }
+
+  /** À appeler à la création d'un compte staff : retrouve ou crée sa fiche liée. */
+  async ensureStaffEmployeForUser(user: {
+    id: number;
     email: string;
     nom: string;
     prenom: string;
     role: UserRole;
     salaireBase?: number;
   }): Promise<Employe | null> {
-    const existing = await this.prisma.employe.findFirst({
-      where: { email: user.email, deletedAt: null },
-    });
+    const existing = await findEmployeForUser(this.prisma, user);
 
     if (existing) {
       return existing;
@@ -87,16 +89,6 @@ export class EmployesService {
     }
 
     return this.createStaffEmployeFromUser(user);
-  }
-
-  async ensureStaffEmployeForUser(user: {
-    email: string;
-    nom: string;
-    prenom: string;
-    role: UserRole;
-    salaireBase?: number;
-  }): Promise<Employe | null> {
-    return this.resolveEmployeForUser(user);
   }
 
   async listPostesReferentiel(): Promise<string[]> {
@@ -143,10 +135,17 @@ export class EmployesService {
 
   async updateByUserId(
     userId: number,
-    dto: UpdateEmployeDto,
+    dto: UpdateEmployeMeDto,
   ): Promise<Employe> {
     const employe = await this.findByUserId(userId);
-    return this.update(employe.id, dto);
+    return this.prisma.employe.update({
+      where: { id: employe.id },
+      data: {
+        telephone: dto.telephone,
+        adresse: dto.adresse,
+        situationFamiliale: dto.situationFamiliale,
+      },
+    });
   }
 
   async updateAvatarByUserId(
@@ -175,25 +174,15 @@ export class EmployesService {
 
   async remove(id: number): Promise<void> {
     const employe = await this.findOne(id);
-
-    await this.activiteService.log(
-      'employe_supprime',
-      `Employé ${employe.nom} ${employe.prenom} supprimé`,
-      employe.id,
-    );
-
     const now = new Date();
 
+    // Les bulletins de paie ne sont pas archivés : conservation légale de l'historique salarial.
     await this.prisma.$transaction([
       this.prisma.presence.updateMany({
         where: { employeId: id },
         data: { deletedAt: now },
       }),
       this.prisma.absence.updateMany({
-        where: { employeId: id },
-        data: { deletedAt: now },
-      }),
-      this.prisma.paie.updateMany({
         where: { employeId: id },
         data: { deletedAt: now },
       }),
@@ -215,9 +204,17 @@ export class EmployesService {
       }),
       this.prisma.employe.update({
         where: { id },
-        data: { deletedAt: now },
+        data: { deletedAt: now, userId: null },
       }),
     ]);
+
+    // Journalisé après l'archivage, sans employeId, pour ne pas être masqué avec les logs de la fiche.
+    await this.activiteService.log(
+      'employe_supprime',
+      `Employé ${employe.nom} ${employe.prenom} supprimé`,
+      null,
+      { employeId: employe.id, matricule: employe.matricule },
+    );
   }
 
   private static readonly SAFE_IMAGE_TYPES: Record<string, string> = {
@@ -364,7 +361,7 @@ export class EmployesService {
       prenom: dto.prenom,
       dateNaissance: dto.dateNaissance ? new Date(dto.dateNaissance) : undefined,
       telephone: dto.telephone,
-      email: dto.email,
+      email: normalizeEmail(dto.email),
       adresse: dto.adresse,
       situationFamiliale: dto.situationFamiliale,
       nombreEnfants: dto.nombreEnfants,
@@ -398,7 +395,7 @@ export class EmployesService {
         : null;
     }
     if (dto.telephone !== undefined) data.telephone = dto.telephone;
-    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.email !== undefined) data.email = normalizeEmail(dto.email);
     if (dto.adresse !== undefined) data.adresse = dto.adresse;
     if (dto.situationFamiliale !== undefined) {
       data.situationFamiliale = dto.situationFamiliale;
@@ -465,6 +462,7 @@ export class EmployesService {
   }
 
   private async createStaffEmployeFromUser(user: {
+    id: number;
     email: string;
     nom: string;
     prenom: string;
@@ -481,7 +479,8 @@ export class EmployesService {
       data: {
         nom: user.nom,
         prenom: user.prenom,
-        email: user.email,
+        email: normalizeEmail(user.email),
+        userId: user.id,
         poste: posteByRole[user.role] ?? 'Collaborateur',
         departement: 'RH',
         typeContrat: 'CDI',

@@ -24,7 +24,7 @@ export class SyntheseService {
       this.prisma.budgetDepense.findMany({
         where: {
           statut: { in: STATUTS_REALISES },
-          enveloppe: { annee, deletedAt: null },
+          enveloppe: { annee, deletedAt: null, statut: StatutBudgetEnveloppe.actif },
         },
         select: { enveloppeId: true, montant: true },
       }),

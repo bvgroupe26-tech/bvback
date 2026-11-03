@@ -83,6 +83,14 @@ async function bootstrap(): Promise<void> {
     console.log('[bootstrap] CORS origins autorisées:', allowedOrigins);
   }
 
+  if (configService.get<string>('NODE_ENV') !== 'production') {
+    setupSwagger(app);
+  }
+
+  await app.listen(port);
+}
+
+function setupSwagger(app: NestExpressApplication): void {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('BV Groupe RH API')
     .setDescription(
@@ -127,8 +135,6 @@ async function bootstrap(): Promise<void> {
       operationsSorter: 'alpha',
     },
   });
-
-  await app.listen(port);
 }
 
 void bootstrap();

@@ -1,5 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StatutBudgetDepense } from '@prisma/client';
+import {
+  endOfDayUTC,
+  parseDateOnly,
+  startOfDayUTC,
+} from '../../common/utils/date.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateDepenseDto } from './dto/create-depense.dto';
 import { QueryDepensesDto } from './dto/query-depenses.dto';
@@ -47,7 +52,7 @@ export class DepensesService {
         categorieId: dto.categorieId ?? null,
         libelle: dto.libelle,
         montant: dto.montant,
-        dateDepense: new Date(dto.dateDepense),
+        dateDepense: parseDateOnly(dto.dateDepense),
         fournisseur: dto.fournisseur,
         referencePiece: dto.referencePiece,
         statut: dto.statut ?? StatutBudgetDepense.en_attente,
@@ -119,7 +124,7 @@ export class DepensesService {
     if (dto.libelle !== undefined) data.libelle = dto.libelle;
     if (dto.montant !== undefined) data.montant = dto.montant;
     if (dto.dateDepense !== undefined) {
-      data.dateDepense = new Date(dto.dateDepense);
+      data.dateDepense = parseDateOnly(dto.dateDepense);
     }
     if (dto.fournisseur !== undefined) data.fournisseur = dto.fournisseur;
     if (dto.referencePiece !== undefined) {
@@ -152,14 +157,10 @@ export class DepensesService {
   }
 
   private startOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(0, 0, 0, 0);
-    return date;
+    return startOfDayUTC(isoDate);
   }
 
   private endOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(23, 59, 59, 999);
-    return date;
+    return endOfDayUTC(isoDate);
   }
 }

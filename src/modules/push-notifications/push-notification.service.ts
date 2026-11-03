@@ -9,7 +9,7 @@ import { PushSubscription } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import * as webPush from 'web-push';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SubscribePushDto } from './dto/subscribe-push.dto';
+import { ResubscribePushDto, SubscribePushDto } from './dto/subscribe-push.dto';
 import {
   DEFAULT_PUSH_ICON,
   PushNotificationPayload,
@@ -80,6 +80,29 @@ export class PushNotificationService implements OnModuleInit {
     );
 
     return row;
+  }
+
+  /**
+   * Appelé par le service worker (pushsubscriptionchange) sans JWT : la possession
+   * de l'ancien endpoint (URL secrète) sert de preuve, et seul son propriétaire est rattaché.
+   */
+  async resubscribe(dto: ResubscribePushDto): Promise<{ replaced: boolean }> {
+    const previous = await this.prisma.pushSubscription.findFirst({
+      where: { endpoint: dto.oldEndpoint },
+      select: { id: true, userId: true },
+    });
+
+    if (!previous) {
+      return { replaced: false };
+    }
+
+    if (dto.oldEndpoint !== dto.subscription.endpoint) {
+      await this.prisma.pushSubscription.deleteMany({
+        where: { id: previous.id },
+      });
+    }
+    await this.subscribe(previous.userId, dto.subscription);
+    return { replaced: true };
   }
 
   async unsubscribe(userId: number, endpoint: string): Promise<void> {

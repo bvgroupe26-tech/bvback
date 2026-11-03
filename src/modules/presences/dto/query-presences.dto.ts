@@ -6,6 +6,7 @@ import {
   IsInt,
   IsISO8601,
   IsOptional,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -61,5 +62,17 @@ export class QueryPresencesDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(5000)
   limit?: number;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    example: 0,
+    description: 'Nombre d’enregistrements à sauter (pagination avec limit ; limit par défaut : 1000).',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

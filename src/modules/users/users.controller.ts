@@ -27,6 +27,8 @@ import {
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { UserPayload } from '../auth/types/auth.types';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
@@ -60,15 +62,22 @@ export class UsersController {
   }
 
   @Post()
-  @Roles('admin')
-  @ApiOperation({ summary: 'Créer un compte utilisateur' })
+  @Roles('admin', 'rh')
+  @ApiOperation({
+    summary: 'Créer un compte utilisateur',
+    description: 'Admin : tous rôles. RH : comptes rh et manager uniquement.',
+  })
   @ApiBody({ type: CreateUserDto })
   @ApiCreatedDataResponse('Utilisateur créé')
+  @ApiResponse({ status: 403, description: 'Rôle cible non autorisé pour le créateur' })
   @ApiResponse({ status: 409, description: 'Email déjà utilisé' })
   @ApiBadRequestResponse()
   @ApiAuthResponses()
-  create(@Body() dto: CreateUserDto): Promise<UserResponseDto> {
-    return this.usersService.create(dto);
+  create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() creator: UserPayload,
+  ): Promise<UserResponseDto> {
+    return this.usersService.create(dto, creator.role);
   }
 
   @Put(':id')

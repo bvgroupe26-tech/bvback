@@ -27,6 +27,7 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { OffreEmploi } from '@prisma/client';
 import { CandidaturesService } from './candidatures.service';
 import { CreateCandidatureDto } from './dto/create-candidature.dto';
@@ -44,6 +45,7 @@ import {
 
 @ApiTags('recrutement')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller()
 export class RecrutementController {
   constructor(

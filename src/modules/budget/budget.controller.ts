@@ -27,6 +27,7 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { BudgetCategorie } from '@prisma/client';
 import { CategoriesService } from './categories.service';
 import { DepensesService } from './depenses.service';
@@ -49,6 +50,7 @@ import {
 
 @ApiTags('budget')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh')
 @Controller('budget')
 export class BudgetController {
   constructor(

@@ -12,6 +12,7 @@ export class FormationsService {
   findAll(query: QueryFormationsDto): Promise<Formation[]> {
     return this.prisma.formation.findMany({
       where: this.buildWhere(query),
+      include: { employe: { select: { nom: true, prenom: true, poste: true } } },
       orderBy: { dateObtention: 'desc' },
     });
   }

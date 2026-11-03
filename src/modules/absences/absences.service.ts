@@ -1,18 +1,27 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
   Absence,
+  Employe,
   Prisma,
   StatutAbsence,
   TypeAbsence,
   TypeNotification,
 } from '@prisma/client';
+import {
+  endOfDayUTC,
+  parseDateOnly,
+  startOfDayUTC,
+} from '../../common/utils/date.util';
 import { NotificationsService } from '../notifications/notifications.service';
+import { requireEmployeForUser } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
+import { absenceBusinessDays, computeLeaveBalance } from './leave-balance';
 import { CreateAbsenceDto } from './dto/create-absence.dto';
 import { QueryAbsencesDto } from './dto/query-absences.dto';
 import { UpdateAbsenceDto } from './dto/update-absence.dto';
@@ -31,12 +40,17 @@ export class AbsencesService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-  findAll(query: QueryAbsencesDto): Promise<AbsenceWithEmploye[]> {
-    return this.prisma.absence.findMany({
+  async findAll(query: QueryAbsencesDto): Promise<AbsenceWithEmploye[]> {
+    const absences = await this.prisma.absence.findMany({
       where: this.buildWhere(query),
       include: absenceWithEmployeInclude,
       orderBy: { dateDebut: 'desc' },
     });
+    return this.withDuree(absences);
+  }
+
+  private withDuree<T extends AbsenceDateRange>(absences: T[]): (T & { dureeJours: number })[] {
+    return absences.map((a) => ({ ...a, dureeJours: absenceBusinessDays(a) }));
   }
 
   async findOne(id: number): Promise<AbsenceWithEmploye> {
@@ -53,16 +67,27 @@ export class AbsencesService {
   }
 
   async create(dto: CreateAbsenceDto): Promise<AbsenceWithEmploye> {
-    await this.assertEmployeExists(dto.employeId);
+    const employe = await this.getEmployeOrThrow(dto.employeId);
+    const statut = dto.statut ?? StatutAbsence.en_attente;
+    const dateDebut = parseDateOnly(dto.dateDebut);
+    const dateFin = parseDateOnly(dto.dateFin);
+
+    await this.assertDemandeValide(employe, {
+      dateDebut,
+      dateFin,
+      typeAbsence: dto.typeAbsence,
+      statut,
+      isNew: true,
+    });
 
     const absence = await this.prisma.absence.create({
       data: {
         employeId: dto.employeId,
-        dateDebut: new Date(dto.dateDebut),
-        dateFin: new Date(dto.dateFin),
+        dateDebut,
+        dateFin,
         typeAbsence: dto.typeAbsence,
         justification: dto.justification,
-        statut: dto.statut ?? StatutAbsence.en_attente,
+        statut,
       },
       include: absenceWithEmployeInclude,
     });
@@ -86,9 +111,28 @@ export class AbsencesService {
 
   async update(id: number, dto: UpdateAbsenceDto): Promise<AbsenceWithEmploye> {
     const existing = await this.findOne(id);
+    const employe = await this.getEmployeOrThrow(dto.employeId ?? existing.employeId);
 
-    if (dto.employeId !== undefined) {
-      await this.assertEmployeExists(dto.employeId);
+    const dateDebut =
+      dto.dateDebut !== undefined ? parseDateOnly(dto.dateDebut) : existing.dateDebut;
+    const dateFin =
+      dto.dateFin !== undefined ? parseDateOnly(dto.dateFin) : existing.dateFin;
+    const touchesDemande =
+      dto.dateDebut !== undefined ||
+      dto.dateFin !== undefined ||
+      dto.employeId !== undefined ||
+      dto.typeAbsence !== undefined ||
+      (dto.statut !== undefined && dto.statut !== existing.statut);
+
+    if (touchesDemande) {
+      await this.assertDemandeValide(employe, {
+        dateDebut,
+        dateFin,
+        typeAbsence: dto.typeAbsence ?? existing.typeAbsence,
+        statut: dto.statut ?? existing.statut,
+        excludeId: id,
+        isNew: false,
+      });
     }
 
     const updated = await this.prisma.absence.update({
@@ -116,78 +160,95 @@ export class AbsencesService {
   async findByEmployeUserId(userId: number): Promise<AbsenceWithEmploye[]> {
     const employe = await this.findEmployeByUserId(userId);
 
-    return this.prisma.absence.findMany({
+    const absences = await this.prisma.absence.findMany({
       where: { employeId: employe.id },
       include: absenceWithEmployeInclude,
       orderBy: { dateDebut: 'desc' },
     });
+    return this.withDuree(absences);
   }
 
   async getBalanceByUserId(userId: number) {
     const employe = await this.findEmployeByUserId(userId);
-    const currentYear = new Date().getFullYear();
-    const startOfYear = new Date(currentYear, 0, 1);
-    const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59, 999);
-
-    const [absencesApprouvees, absencesEnAttente] = await Promise.all([
-      this.prisma.absence.findMany({
-        where: {
-          employeId: employe.id,
-          statut: StatutAbsence.approuve,
-          dateDebut: { gte: startOfYear, lte: endOfYear },
-        },
-      }),
-      this.prisma.absence.findMany({
-        where: {
-          employeId: employe.id,
-          statut: StatutAbsence.en_attente,
-          dateDebut: { gte: startOfYear, lte: endOfYear },
-        },
-      }),
-    ]);
-
-    const ANNUAL_LEAVE_DAYS = 30;
-
-    let joursPris = 0;
-    const parType: Record<string, number> = {};
-
-    for (const absence of absencesApprouvees) {
-      const jours = this.getDureeJours(absence);
-      joursPris += jours;
-      const key = absence.typeAbsence;
-      parType[key] = (parType[key] ?? 0) + jours;
-    }
-
-    const congesPayesPris = parType[TypeAbsence.conge_paye] ?? 0;
-    const enAttente = absencesEnAttente.reduce(
-      (sum, a) => sum + this.getDureeJours(a),
-      0,
-    );
+    const balance = await computeLeaveBalance(this.prisma, employe);
 
     return {
-      annee: currentYear,
-      droitAnnuel: ANNUAL_LEAVE_DAYS,
-      joursPris,
-      soldeRestant: Math.max(0, ANNUAL_LEAVE_DAYS - congesPayesPris),
-      detailParType: parType,
-      total: ANNUAL_LEAVE_DAYS,
-      pris: congesPayesPris,
-      restant: Math.max(0, ANNUAL_LEAVE_DAYS - congesPayesPris),
-      en_attente: enAttente,
+      annee: balance.annee,
+      droitAnnuel: balance.droitAnnuel,
+      joursPris: balance.joursPris,
+      soldeRestant: balance.soldeRestant,
+      detailParType: balance.detailParType,
+      total: balance.droitAnnuel,
+      pris: balance.congesPayesPris,
+      restant: balance.soldeRestant,
+      en_attente: balance.enAttente,
+      unite: 'jours_ouvres' as const,
     };
   }
 
+  /** Durée en jours ouvrés (lundi→vendredi). */
   getDureeJours(absence: AbsenceDateRange): number {
-    const debut = new Date(absence.dateDebut);
-    const fin = new Date(absence.dateFin);
+    return absenceBusinessDays(absence);
+  }
 
-    debut.setHours(0, 0, 0, 0);
-    fin.setHours(0, 0, 0, 0);
+  private async assertDemandeValide(
+    employe: Employe,
+    demande: {
+      dateDebut: Date;
+      dateFin: Date;
+      typeAbsence: TypeAbsence;
+      statut: StatutAbsence;
+      excludeId?: number;
+      isNew: boolean;
+    },
+  ): Promise<void> {
+    const { dateDebut, dateFin, typeAbsence, statut, excludeId } = demande;
 
-    const diffMs = fin.getTime() - debut.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (dateFin < dateDebut) {
+      throw new BadRequestException('dateFin doit être postérieure ou égale à dateDebut');
+    }
 
-    return diffDays + 1;
+    const active =
+      statut === StatutAbsence.en_attente || statut === StatutAbsence.approuve;
+    if (!active) return;
+
+    const chevauchement = await this.prisma.absence.findFirst({
+      where: {
+        employeId: employe.id,
+        statut: { in: [StatutAbsence.en_attente, StatutAbsence.approuve] },
+        dateDebut: { lte: dateFin },
+        dateFin: { gte: dateDebut },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true, dateDebut: true, dateFin: true },
+    });
+
+    if (chevauchement) {
+      throw new ConflictException(
+        `Chevauchement avec l'absence #${chevauchement.id} du ${this.formatDate(chevauchement.dateDebut)} au ${this.formatDate(chevauchement.dateFin)}.`,
+      );
+    }
+
+    if (typeAbsence !== TypeAbsence.conge_paye) return;
+
+    const jours = absenceBusinessDays({ dateDebut, dateFin });
+    const balance = await computeLeaveBalance(
+      this.prisma,
+      employe,
+      dateDebut.getUTCFullYear(),
+      excludeId,
+    );
+    // À la demande, on réserve aussi les jours déjà en attente ; à l'approbation, seuls les jours approuvés comptent.
+    const disponible =
+      statut === StatutAbsence.approuve
+        ? balance.soldeRestant
+        : balance.soldeRestant - balance.enAttente;
+
+    if (jours > disponible) {
+      throw new BadRequestException(
+        `Solde de congés insuffisant : ${jours} jour(s) ouvré(s) demandé(s), ${Math.max(0, disponible)} disponible(s).`,
+      );
+    }
   }
 
   private buildWhere(query: QueryAbsencesDto): Prisma.AbsenceWhereInput {
@@ -229,8 +290,8 @@ export class AbsencesService {
     if (dto.employeId !== undefined) {
       data.employe = { connect: { id: dto.employeId } };
     }
-    if (dto.dateDebut !== undefined) data.dateDebut = new Date(dto.dateDebut);
-    if (dto.dateFin !== undefined) data.dateFin = new Date(dto.dateFin);
+    if (dto.dateDebut !== undefined) data.dateDebut = parseDateOnly(dto.dateDebut);
+    if (dto.dateFin !== undefined) data.dateFin = parseDateOnly(dto.dateFin);
     if (dto.typeAbsence !== undefined) data.typeAbsence = dto.typeAbsence;
     if (dto.justification !== undefined) data.justification = dto.justification;
     if (dto.statut !== undefined) data.statut = dto.statut;
@@ -265,27 +326,11 @@ export class AbsencesService {
     }
   }
 
-  private async findEmployeByUserId(userId: number) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email },
-    });
-
-    if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
-    }
-
-    return employe;
+  private findEmployeByUserId(userId: number): Promise<Employe> {
+    return requireEmployeForUser(this.prisma, userId);
   }
 
-  private async assertEmployeExists(employeId: number): Promise<void> {
+  private async getEmployeOrThrow(employeId: number): Promise<Employe> {
     const employe = await this.prisma.employe.findUnique({
       where: { id: employeId },
     });
@@ -293,18 +338,16 @@ export class AbsencesService {
     if (!employe) {
       throw new NotFoundException(`Employé #${employeId} introuvable`);
     }
+
+    return employe;
   }
 
   private startOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(0, 0, 0, 0);
-    return date;
+    return startOfDayUTC(isoDate);
   }
 
   private endOfDay(isoDate: string): Date {
-    const date = new Date(isoDate);
-    date.setHours(23, 59, 59, 999);
-    return date;
+    return endOfDayUTC(isoDate);
   }
 
   private async notifyAbsenceStatutChange(

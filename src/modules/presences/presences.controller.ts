@@ -26,6 +26,8 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { EmployeeScope } from '../../common/guards/employee-scope.guard';
 import { CreatePresenceDto } from './dto/create-presence.dto';
 import { QueryPresencesDto } from './dto/query-presences.dto';
 import { UpdatePresenceDto } from './dto/update-presence.dto';
@@ -37,6 +39,7 @@ import {
 
 @ApiTags('presences')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller('presences')
 export class PresencesController {
   constructor(private readonly presencesService: PresencesService) {}
@@ -52,12 +55,16 @@ export class PresencesController {
   @Get('today')
   @ApiOperation({ summary: 'Présences du jour', description: 'Liste avec nom, prénom, département et poste.' })
   @ApiOkDataResponse('Présences du jour')
+  @ApiQuery({ name: 'date', required: false, example: '2026-05-15' })
   @ApiAuthResponses()
-  findToday(): Promise<PresenceWithEmploye[]> {
-    return this.presencesService.findToday();
+  findToday(@Query('date') date?: string): Promise<PresenceWithEmploye[]> {
+    const valid = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+    return this.presencesService.findToday(valid);
   }
 
   @Get()
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ query: true })
   @ApiOperation({ summary: 'Lister les présences', description: 'Filtres par employé, date et statut.' })
   @ApiQuery({ type: QueryPresencesDto })
   @ApiOkDataResponse('Liste des présences')

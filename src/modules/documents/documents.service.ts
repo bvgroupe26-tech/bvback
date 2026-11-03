@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { DocumentRh } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { requireEmployeForUser } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -38,23 +39,7 @@ export class DocumentsService {
     return { buffer: fs.readFileSync(absolutePath), document };
   }
 
-  private async findEmployeByUserId(userId: number) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email },
-    });
-
-    if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
-    }
-
-    return employe;
+  private findEmployeByUserId(userId: number) {
+    return requireEmployeForUser(this.prisma, userId);
   }
 }

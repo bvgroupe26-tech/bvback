@@ -26,6 +26,8 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { EmployeeScope } from '../../common/guards/employee-scope.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { CreateAbsenceDto } from './dto/create-absence.dto';
@@ -36,11 +38,13 @@ import { AbsenceWithEmploye } from './types/absence-with-employe.type';
 
 @ApiTags('absences')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller('absences')
 export class AbsencesController {
   constructor(private readonly absencesService: AbsencesService) {}
 
   @Get('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Mes absences',
     description: 'Liste des absences de l\'employé connecté.',
@@ -52,6 +56,7 @@ export class AbsencesController {
   }
 
   @Get('balance/me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Solde congés restants',
     description: 'Calcul du solde de congés de l\'employé connecté pour l\'année en cours.',
@@ -73,6 +78,8 @@ export class AbsencesController {
   }
 
   @Post()
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ body: true })
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Déclarer une absence', description: 'Statut par défaut : en_attente.' })
   @ApiBody({ type: CreateAbsenceDto })
@@ -100,6 +107,8 @@ export class AbsencesController {
   }
 
   @Post(':id/delete')
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ resource: 'absence' })
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Archiver une absence',

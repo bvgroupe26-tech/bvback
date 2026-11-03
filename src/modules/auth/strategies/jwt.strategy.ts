@@ -31,8 +31,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   async validate(payload: JwtPayload): Promise<UserPayload> {
     const user = await this.authService.getMe(payload.sub);
 
-    if (!user) {
-      throw new UnauthorizedException('Utilisateur introuvable');
+    if (!user || user.isActive === false) {
+      throw new UnauthorizedException('Utilisateur introuvable ou désactivé');
     }
 
     return user;

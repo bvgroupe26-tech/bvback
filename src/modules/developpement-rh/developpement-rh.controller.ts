@@ -26,6 +26,7 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { Competence, Evaluation, Formation } from '@prisma/client';
 import { CompetencesService } from './competences.service';
 import { CreateCompetenceDto } from './dto/create-competence.dto';
@@ -41,6 +42,7 @@ import { FormationsService } from './formations.service';
 
 @ApiTags('developpement-rh')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller()
 export class DeveloppementRhController {
   constructor(

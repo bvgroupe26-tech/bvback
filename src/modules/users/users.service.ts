@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { plainToInstance } from 'class-transformer';
+import { normalizeEmail } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
 import { USER_ROLE, type UserRole } from '../../prisma/user-role';
 import { EmployesService } from '../employes/employes.service';
@@ -29,7 +30,10 @@ export class UsersService {
   ) {}
 
   findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findFirst({ where: { email } });
+    return this.prisma.user.findFirst({
+      where: { email: { equals: normalizeEmail(email), mode: 'insensitive' } },
+      orderBy: { id: 'asc' },
+    });
   }
 
   findById(id: number): Promise<User | null> {
@@ -43,10 +47,7 @@ export class UsersService {
       throw new NotFoundException(`Utilisateur #${id} introuvable`);
     }
 
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email, deletedAt: null },
-      select: { id: true },
-    });
+    const employe = await this.employesService.findEmployeForUser(user);
 
     return this.toResponse(user, employe?.id ?? null);
   }
@@ -56,20 +57,27 @@ export class UsersService {
       orderBy: { id: 'asc' },
     });
 
-    const emails = users.map((u) => u.email);
-    const employes = emails.length
+    const employes = users.length
       ? await this.prisma.employe.findMany({
-          where: { email: { in: emails }, deletedAt: null },
-          select: { id: true, email: true },
+          where: { userId: { in: users.map((u) => u.id) } },
+          select: { id: true, userId: true },
         })
       : [];
-    const byEmail = new Map(employes.map((e) => [e.email, e.id]));
+    const byUserId = new Map(employes.map((e) => [e.userId, e.id]));
 
-    return users.map((user) => this.toResponse(user, byEmail.get(user.email) ?? null));
+    return users.map((user) => this.toResponse(user, byUserId.get(user.id) ?? null));
   }
 
-  async create(dto: CreateUserDto): Promise<UserResponseDto> {
-    const existing = await this.findByEmail(dto.email);
+  /** `creatorRole` absent = appel interne (seed, scripts). */
+  async create(dto: CreateUserDto, creatorRole?: UserRole): Promise<UserResponseDto> {
+    if (creatorRole && !this.canCreateRole(creatorRole, dto.role)) {
+      throw new ForbiddenException(
+        "Votre rôle ne permet pas de créer ce type de compte",
+      );
+    }
+
+    const email = normalizeEmail(dto.email);
+    const existing = await this.findByEmail(email);
 
     if (existing) {
       throw new ConflictException('Un compte existe déjà avec cet email');
@@ -79,7 +87,7 @@ export class UsersService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
         nom: dto.nom,
         prenom: dto.prenom,
@@ -87,7 +95,8 @@ export class UsersService {
       },
     });
 
-    await this.employesService.ensureStaffEmployeForUser({
+    const employe = await this.employesService.ensureStaffEmployeForUser({
+      id: user.id,
       email: user.email,
       nom: user.nom,
       prenom: user.prenom,
@@ -95,7 +104,7 @@ export class UsersService {
       salaireBase: dto.salaireBase,
     });
 
-    return this.toResponse(user);
+    return this.toResponse(user, employe?.id ?? null);
   }
 
   async update(id: number, dto: UpdateUserDto): Promise<UserResponseDto> {
@@ -105,10 +114,10 @@ export class UsersService {
       throw new NotFoundException(`Utilisateur #${id} introuvable`);
     }
 
-    if (dto.email && dto.email !== existing.email) {
+    if (dto.email && normalizeEmail(dto.email) !== existing.email) {
       const emailTaken = await this.findByEmail(dto.email);
 
-      if (emailTaken) {
+      if (emailTaken && emailTaken.id !== id) {
         throw new ConflictException('Cet email est déjà utilisé');
       }
     }
@@ -123,7 +132,7 @@ export class UsersService {
 
     const data: UserUpdateInput = {};
 
-    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.email !== undefined) data.email = normalizeEmail(dto.email);
     if (dto.nom !== undefined) data.nom = dto.nom;
     if (dto.prenom !== undefined) data.prenom = dto.prenom;
     if (dto.role !== undefined) data.role = dto.role;
@@ -161,10 +170,16 @@ export class UsersService {
     }
 
     const archivedEmail = `archived+user${id}+${Date.now()}@bvgroupe.invalid`;
-    await this.prisma.user.update({
-      where: { id },
-      data: { email: archivedEmail, deletedAt: new Date() },
-    });
+    await this.prisma.$transaction([
+      this.prisma.employe.updateMany({
+        where: { userId: id },
+        data: { userId: null },
+      }),
+      this.prisma.user.update({
+        where: { id },
+        data: { email: archivedEmail, deletedAt: new Date() },
+      }),
+    ]);
   }
 
   async updateLastLogin(id: number): Promise<void> {
@@ -179,6 +194,7 @@ export class UsersService {
     if (!user) throw new NotFoundException(`Utilisateur #${id} introuvable`);
 
     const employe = await this.employesService.ensureStaffEmployeForUser({
+      id: user.id,
       email: user.email,
       nom: user.nom,
       prenom: user.prenom,
@@ -200,6 +216,14 @@ export class UsersService {
     });
     dto.employe_id = employe_id;
     return dto;
+  }
+
+  private canCreateRole(creatorRole: UserRole, targetRole: UserRole): boolean {
+    if (creatorRole === USER_ROLE.admin) return true;
+    if (creatorRole === USER_ROLE.rh) {
+      return targetRole === USER_ROLE.rh || targetRole === USER_ROLE.manager;
+    }
+    return false;
   }
 
   private async assertCanDeactivateUser(user: User): Promise<void> {

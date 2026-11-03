@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { Notification, Prisma, TypeNotification, UserRole } from '@prisma/client';
 import { PushNotificationService } from '../push-notifications/push-notification.service';
+import {
+  findEmployeForUser,
+  findUserIdForEmploye,
+} from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildPushPayload,
@@ -33,12 +37,17 @@ export class NotificationsService {
     private readonly pushNotificationService: PushNotificationService,
   ) {}
 
-  async findForUser(userId: number): Promise<Notification[]> {
+  async findForUser(
+    userId: number,
+    page: { limit?: number; offset?: number } = {},
+  ): Promise<Notification[]> {
     const where = await this.buildRecipientWhere(userId);
 
     return this.prisma.notification.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: Math.min(page.limit || 100, 500),
+      skip: page.offset ?? 0,
     });
   }
 
@@ -121,7 +130,7 @@ export class NotificationsService {
     meta?: NotificationMeta,
   ): Promise<number> {
     const staff = await this.prisma.user.findMany({
-      where: { role: { in: RH_ROLES } },
+      where: { role: { in: RH_ROLES }, isActive: true },
       select: { id: true },
     });
 
@@ -254,24 +263,8 @@ export class NotificationsService {
     });
   }
 
-  private async resolveUserIdFromEmployeId(
-    employeId: number,
-  ): Promise<number | null> {
-    const employe = await this.prisma.employe.findUnique({
-      where: { id: employeId },
-      select: { email: true },
-    });
-
-    if (!employe?.email) {
-      return null;
-    }
-
-    const user = await this.prisma.user.findFirst({
-      where: { email: employe.email },
-      select: { id: true },
-    });
-
-    return user?.id ?? null;
+  private resolveUserIdFromEmployeId(employeId: number): Promise<number | null> {
+    return findUserIdForEmploye(this.prisma, employeId);
   }
 
   private async buildRecipientWhere(
@@ -303,14 +296,7 @@ export class NotificationsService {
     return false;
   }
 
-  private async findEmployeByUserIdOptional(userId: number) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.email) {
-      return null;
-    }
-
-    return this.prisma.employe.findFirst({
-      where: { email: user.email },
-    });
+  private findEmployeByUserIdOptional(userId: number) {
+    return findEmployeForUser(this.prisma, { id: userId });
   }
 }

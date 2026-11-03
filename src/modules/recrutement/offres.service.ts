@@ -19,9 +19,16 @@ import {
 export class OffresService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(query: QueryOffresDto): Promise<OffreEmploi[]> {
+  findAll(query: QueryOffresDto): Promise<OffreWithCandidaturesCount[]> {
     return this.prisma.offreEmploi.findMany({
       where: this.buildWhere(query),
+      include: {
+        _count: {
+          select: {
+            candidatures: { where: { deletedAt: null } },
+          },
+        },
+      },
       orderBy: { datePublication: 'desc' },
     });
   }

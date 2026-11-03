@@ -35,7 +35,7 @@ import { LocalStrategy } from './strategies/local.strategy';
           signOptions: {
             expiresIn: configService.get<string>(
               'ACCESS_TOKEN_EXPIRES_IN',
-              '7d',
+              '15m',
             ) as `${number}${'s' | 'm' | 'h' | 'd'}`,
           },
         };

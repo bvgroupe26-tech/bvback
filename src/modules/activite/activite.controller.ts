@@ -5,12 +5,14 @@ import {
   ApiBadRequestResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ActiviteService } from './activite.service';
 import { QueryActiviteDto } from './dto/query-activite.dto';
 import { ActiviteLogWithEmploye } from './types/activite.types';
 
 @ApiTags('activite')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh')
 @Controller('activite')
 export class ActiviteController {
   constructor(private readonly activiteService: ActiviteService) {}

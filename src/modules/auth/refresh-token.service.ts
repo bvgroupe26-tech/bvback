@@ -124,16 +124,6 @@ export class RefreshTokenService {
       throw new UnauthorizedException('Refresh token invalide');
     }
 
-    if (record.revokedAt) {
-      await this.revokeAllForUser(record.userId);
-      this.logger.warn(
-        `Réutilisation d'un refresh token révoqué — userId=${record.userId}`,
-      );
-      throw new UnauthorizedException(
-        'Session compromise — toutes les sessions ont été révoquées',
-      );
-    }
-
     if (record.expiresAt < new Date()) {
       throw new UnauthorizedException('Refresh token expiré');
     }
@@ -144,10 +134,30 @@ export class RefreshTokenService {
       throw new UnauthorizedException('Refresh token invalide');
     }
 
-    await this.prisma.refreshToken.update({
-      where: { id: record.id },
+    await this.assertUserActive(record.userId);
+
+    if (record.revokedAt) {
+      return this.handleRevokedReuse(record.id, record.userId, record.revokedAt, meta);
+    }
+
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { id: record.id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+
+    if (count === 0) {
+      // Rotation concurrente : un autre appel vient de révoquer ce même token.
+      const current = await this.prisma.refreshToken.findUnique({
+        where: { id: record.id },
+        select: { revokedAt: true },
+      });
+      return this.handleRevokedReuse(
+        record.id,
+        record.userId,
+        current?.revokedAt ?? new Date(),
+        meta,
+      );
+    }
 
     const newRefreshToken = await this.create(payload.sub, meta);
 
@@ -155,6 +165,68 @@ export class RefreshTokenService {
       userId: payload.sub,
       refreshToken: newRefreshToken,
     };
+  }
+
+  private static readonly REUSE_GRACE_MS = 30_000;
+  private static readonly CONCURRENT_ROTATION_MS = 5_000;
+
+  /**
+   * Un token tout juste remplacé (refresh concurrent multi-onglets, réponse perdue sur timeout)
+   * est toléré pendant la fenêtre de grâce ; au-delà, c'est traité comme un vol.
+   */
+  private async handleRevokedReuse(
+    tokenId: number,
+    userId: number,
+    revokedAt: Date,
+    meta: SessionMeta,
+  ): Promise<RefreshRotationResult> {
+    const ageMs = Date.now() - revokedAt.getTime();
+
+    if (ageMs >= 0 && ageMs < RefreshTokenService.REUSE_GRACE_MS) {
+      const wasRotated =
+        ageMs < RefreshTokenService.CONCURRENT_ROTATION_MS ||
+        (await this.hasSuccessor(userId, revokedAt));
+
+      if (wasRotated) {
+        this.logger.log(
+          `Refresh token ${tokenId} réutilisé dans la fenêtre de grâce — userId=${userId}`,
+        );
+        return { userId, refreshToken: await this.create(userId, meta) };
+      }
+    }
+
+    await this.revokeAllForUser(userId);
+    this.logger.warn(`Réutilisation d'un refresh token révoqué — userId=${userId}`);
+    throw new UnauthorizedException(
+      'Session compromise — toutes les sessions ont été révoquées',
+    );
+  }
+
+  // Distingue une rotation (successeur créé juste après) d'un logout (aucun successeur).
+  private async hasSuccessor(userId: number, revokedAt: Date): Promise<boolean> {
+    const successor = await this.prisma.refreshToken.findFirst({
+      where: {
+        userId,
+        revokedAt: null,
+        createdAt: {
+          gte: new Date(revokedAt.getTime() - 2_000),
+          lte: new Date(revokedAt.getTime() + 10_000),
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(successor);
+  }
+
+  private async assertUserActive(userId: number): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { isActive: true },
+    });
+    if (!user || user.isActive === false) {
+      await this.revokeAllForUser(userId);
+      throw new UnauthorizedException('Compte désactivé ou supprimé');
+    }
   }
 
   async revokeByToken(refreshToken: string): Promise<void> {

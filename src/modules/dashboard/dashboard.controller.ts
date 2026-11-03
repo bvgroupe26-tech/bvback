@@ -4,6 +4,7 @@ import {
   ApiAuthResponses,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { DashboardService } from './dashboard.service';
@@ -18,11 +19,13 @@ import {
 
 @ApiTags('dashboard')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Résumé employé',
     description: 'Solde congés, dernière paie et notifications non lues de l\'employé connecté.',

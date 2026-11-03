@@ -4,9 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Employe, Paie, Prisma, StatutPaie, TypeNotification } from '@prisma/client';
+import {
+  Employe,
+  Paie,
+  Prisma,
+  StatutPaie,
+  TypeNotification,
+  UserRole,
+} from '@prisma/client';
 import { ActiviteService } from '../activite/activite.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { requireEmployeForUser } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePaieDto } from './dto/create-paie.dto';
 import { GeneratePaieDto } from './dto/generate-paie.dto';
@@ -191,23 +199,25 @@ export class PaieService {
           orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
         });
 
-    const bulletins: PaieWithEmploye[] = [];
     const skippedDetails: PaieSkippedEntry[] = [];
     const summary = createEmptyPaieSkipSummary();
+    const toCreate: Prisma.PaieCreateManyInput[] = [];
 
-    await this.prisma.$transaction(async (tx) => {
+    const createdIds = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.paie.findMany({
+        where: {
+          employeId: { in: employes.map((e) => e.id) },
+          mois: dto.mois,
+          annee: dto.annee,
+          deletedAt: null,
+          statut: { not: StatutPaie.annule },
+        },
+        select: { employeId: true },
+      });
+      const existingIds = new Set(existing.map((p) => p.employeId));
+
       for (const employe of employes) {
-        const exists = await tx.paie.findFirst({
-          where: {
-            employeId: employe.id,
-            mois: dto.mois,
-            annee: dto.annee,
-            deletedAt: null,
-            statut: { not: StatutPaie.annule },
-          },
-        });
-
-        if (exists) {
+        if (existingIds.has(employe.id)) {
           summary.deja_existant++;
           skippedDetails.push({
             employeId: employe.id,
@@ -243,30 +253,45 @@ export class PaieService {
           autresRetenues: 0,
         });
 
-        const bulletin = await tx.paie.create({
-          data: {
-            employeId: employe.id,
+        toCreate.push({
+          employeId: employe.id,
+          mois: dto.mois,
+          annee: dto.annee,
+          salaireBase: prorata.salaireBase,
+          primeTransport: prorata.primeTransport,
+          primePerformance: prorata.primePerformance,
+          primeLogement: prorata.primeLogement,
+          autresPrimes: prorata.autresPrimes,
+          cnss: calc.cnss,
+          impot: calc.impot,
+          autresRetenues: 0,
+          salaireNet: calc.salaireNet,
+          joursTravailles: prorata.joursTravailles,
+          joursPeriode: prorata.joursPeriode,
+          statut: StatutPaie.en_attente,
+        });
+      }
+
+      if (toCreate.length === 0) return [] as number[];
+
+      // skipDuplicates s'appuie sur l'index unique paie (employé, mois, année) s'il existe.
+      await tx.paie.createMany({ data: toCreate, skipDuplicates: true });
+      return toCreate.map((row) => row.employeId);
+    }, { timeout: 60000, maxWait: 10000 });
+
+    const bulletins: PaieWithEmploye[] = createdIds.length
+      ? await this.prisma.paie.findMany({
+          where: {
+            employeId: { in: createdIds },
             mois: dto.mois,
             annee: dto.annee,
-            salaireBase: prorata.salaireBase,
-            primeTransport: prorata.primeTransport,
-            primeLogement: prorata.primeLogement,
-            primePerformance: prorata.primePerformance,
-            autresPrimes: prorata.autresPrimes,
-            cnss: calc.cnss,
-            impot: calc.impot,
-            autresRetenues: 0,
-            salaireNet: calc.salaireNet,
-            joursTravailles: prorata.joursTravailles,
-            joursPeriode: prorata.joursPeriode,
+            deletedAt: null,
             statut: StatutPaie.en_attente,
           },
           include: paieWithEmployeInclude,
-        });
-
-        bulletins.push(bulletin);
-      }
-    });
+          orderBy: [{ employe: { nom: 'asc' } }, { employe: { prenom: 'asc' } }],
+        })
+      : [];
 
     const result: GeneratePaieResult = {
       generated: bulletins.length,
@@ -294,8 +319,17 @@ export class PaieService {
     return result;
   }
 
-  async update(id: number, dto: UpdatePaieDto): Promise<PaieWithEmploye> {
+  async update(
+    id: number,
+    dto: UpdatePaieDto,
+    actorRole?: UserRole,
+  ): Promise<PaieWithEmploye> {
     const existing = await this.findOne(id);
+
+    if (existing.statut === StatutPaie.paye) {
+      return this.updatePaidBulletin(existing, dto, actorRole);
+    }
+
     const employe = await this.getEmployeOrThrow(
       dto.employeId ?? existing.employeId,
     );
@@ -314,6 +348,16 @@ export class PaieService {
     }
 
     const merged = this.mergePaieFields(existing, dto);
+    const amountsChanged =
+      merged.salaireBase !== existing.salaireBase ||
+      merged.primeTransport !== existing.primeTransport ||
+      merged.primeLogement !== existing.primeLogement ||
+      merged.primePerformance !== existing.primePerformance ||
+      merged.autresPrimes !== existing.autresPrimes ||
+      merged.autresRetenues !== existing.autresRetenues ||
+      employe.id !== existing.employeId;
+
+    // Sans changement de montant, on conserve CNSS/impôt existants (éventuellement saisis à la main).
     const calc = this.calcFromEmploye(employe, {
       salaireBase: merged.salaireBase,
       primeTransport: merged.primeTransport,
@@ -321,15 +365,15 @@ export class PaieService {
       primePerformance: merged.primePerformance,
       autresPrimes: merged.autresPrimes,
       autresRetenues: merged.autresRetenues,
-      cnss: dto.cnss,
-      impot: dto.impot,
+      cnss: dto.cnss ?? (amountsChanged ? undefined : existing.cnss),
+      impot: dto.impot ?? (amountsChanged ? undefined : existing.impot),
     });
 
     let datePaiement = existing.datePaiement;
 
     if (dto.statut !== undefined) {
       if (dto.statut === StatutPaie.paye) {
-        datePaiement = new Date();
+        datePaiement = existing.datePaiement ?? new Date();
       } else if (
         dto.statut === StatutPaie.en_attente ||
         dto.statut === StatutPaie.annule
@@ -359,14 +403,48 @@ export class PaieService {
       include: paieWithEmployeInclude,
     });
 
-    if (
-      dto.statut === StatutPaie.paye &&
-      existing.statut !== StatutPaie.paye
-    ) {
+    if (dto.statut === StatutPaie.paye) {
       await this.notifyBulletinPaye(updated);
     }
 
     return updated;
+  }
+
+  private async updatePaidBulletin(
+    existing: PaieWithEmploye,
+    dto: UpdatePaieDto,
+    actorRole?: UserRole,
+  ): Promise<PaieWithEmploye> {
+    const otherFields = (Object.keys(dto) as (keyof UpdatePaieDto)[]).filter(
+      (key) => key !== 'statut' && dto[key] !== undefined && dto[key] !== null,
+    );
+    const changesSomething = otherFields.some(
+      (key) => dto[key] !== (existing as unknown as Record<string, unknown>)[key],
+    );
+
+    if (changesSomething) {
+      throw new BadRequestException(
+        'Bulletin payé verrouillé : ses montants ne peuvent plus être modifiés.',
+      );
+    }
+
+    if (dto.statut === undefined || dto.statut === StatutPaie.paye) {
+      return existing;
+    }
+
+    if (dto.statut === StatutPaie.annule && actorRole === UserRole.admin) {
+      return this.prisma.paie.update({
+        where: { id: existing.id },
+        data: { statut: StatutPaie.annule },
+        include: paieWithEmployeInclude,
+      });
+    }
+
+    throw new BadRequestException(
+      dto.statut === StatutPaie.annule
+        ? 'Seul un administrateur peut annuler un bulletin déjà payé.'
+        : 'Un bulletin payé ne peut pas repasser en attente.',
+    );
   }
 
   async remove(id: number): Promise<void> {
@@ -570,24 +648,8 @@ export class PaieService {
     }
   }
 
-  private async findEmployeByUserId(userId: number): Promise<Employe> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email },
-    });
-
-    if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
-    }
-
-    return employe;
+  private findEmployeByUserId(userId: number): Promise<Employe> {
+    return requireEmployeForUser(this.prisma, userId);
   }
 
   private async notifyBulletinsGenerated(

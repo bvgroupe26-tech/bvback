@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   Prisma,
+  StatutBudgetDepense,
   StatutBudgetEnveloppe,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,19 +13,31 @@ import {
   enveloppeWithCountInclude,
 } from './types/budget.types';
 
+export type EnveloppeWithMontants = EnveloppeWithCount & {
+  montantRealise: number;
+  montantEnAttente: number;
+  ecart: number;
+};
+
+const STATUTS_REALISES: StatutBudgetDepense[] = [
+  StatutBudgetDepense.approuve,
+  StatutBudgetDepense.paye,
+];
+
 @Injectable()
 export class EnveloppesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(query: QueryEnveloppesDto): Promise<EnveloppeWithCount[]> {
-    return this.prisma.budgetEnveloppe.findMany({
+  async findAll(query: QueryEnveloppesDto): Promise<EnveloppeWithMontants[]> {
+    const enveloppes = await this.prisma.budgetEnveloppe.findMany({
       where: this.buildWhere(query),
       include: enveloppeWithCountInclude,
       orderBy: [{ annee: 'desc' }, { libelle: 'asc' }],
     });
+    return this.withMontants(enveloppes);
   }
 
-  async findOne(id: number): Promise<EnveloppeWithCount> {
+  async findOne(id: number): Promise<EnveloppeWithMontants> {
     const enveloppe = await this.prisma.budgetEnveloppe.findUnique({
       where: { id },
       include: enveloppeWithCountInclude,
@@ -34,7 +47,42 @@ export class EnveloppesService {
       throw new NotFoundException(`Enveloppe budgétaire #${id} introuvable`);
     }
 
-    return enveloppe;
+    const [enriched] = await this.withMontants([enveloppe]);
+    return enriched;
+  }
+
+  private async withMontants(
+    enveloppes: EnveloppeWithCount[],
+  ): Promise<EnveloppeWithMontants[]> {
+    if (enveloppes.length === 0) return [];
+
+    const sums = await this.prisma.budgetDepense.groupBy({
+      by: ['enveloppeId', 'statut'],
+      where: {
+        enveloppeId: { in: enveloppes.map((e) => e.id) },
+        deletedAt: null,
+      },
+      _sum: { montant: true },
+    });
+
+    return enveloppes.map((e) => {
+      let montantRealise = 0;
+      let montantEnAttente = 0;
+      for (const row of sums) {
+        if (row.enveloppeId !== e.id) continue;
+        const montant = row._sum.montant ?? 0;
+        if (STATUTS_REALISES.includes(row.statut)) montantRealise += montant;
+        else if (row.statut === StatutBudgetDepense.en_attente) {
+          montantEnAttente += montant;
+        }
+      }
+      return {
+        ...e,
+        montantRealise,
+        montantEnAttente,
+        ecart: e.montantPrevu - montantRealise,
+      };
+    });
   }
 
   create(dto: CreateEnveloppeDto): Promise<EnveloppeWithCount> {

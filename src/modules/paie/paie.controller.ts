@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
+import { validate, ValidationError } from 'class-validator';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -32,6 +32,8 @@ import {
   ApiNotFoundResponse,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { EmployeeScope } from '../../common/guards/employee-scope.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { CreatePaieDto } from './dto/create-paie.dto';
@@ -48,6 +50,7 @@ import {
 
 @ApiTags('paie')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh')
 @Controller('paie')
 export class PaieController {
   constructor(private readonly paieService: PaieService) {}
@@ -75,6 +78,7 @@ export class PaieController {
   }
 
   @Get('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Mes bulletins de paie',
     description: 'Liste des bulletins de paie de l\'employé connecté.',
@@ -122,26 +126,19 @@ export class PaieController {
   ): Promise<PaieWithEmploye | GeneratePaieResult> {
     if (this.paieService.isGenerateMode(body)) {
       const dto = plainToInstance(GeneratePaieDto, body);
-      const errors = await validate(dto);
-
-      if (errors.length > 0) {
-        throw new BadRequestException(errors);
-      }
-
+      await this.assertValid(dto);
       return this.paieService.generateBulk(dto);
     }
 
     const dto = plainToInstance(CreatePaieDto, body);
-    const errors = await validate(dto);
-
-    if (errors.length > 0) {
-      throw new BadRequestException(errors);
-    }
+    await this.assertValid(dto);
 
     return this.paieService.createManual(dto);
   }
 
   @Get(':id/download')
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ resource: 'paie', staff: ['admin', 'rh'] })
   @ApiOperation({
     summary: 'Télécharger un bulletin PDF',
     description: 'Génère et retourne un PDF du bulletin de paie.',
@@ -169,6 +166,8 @@ export class PaieController {
   }
 
   @Get(':id')
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ resource: 'paie', staff: ['admin', 'rh'] })
   @ApiOperation({ summary: 'Détail d\'un bulletin' })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiOkDataResponse('Bulletin avec employé')
@@ -189,8 +188,9 @@ export class PaieController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdatePaieDto,
+    @CurrentUser() user: UserPayload,
   ): Promise<PaieWithEmploye> {
-    return this.paieService.update(id, dto);
+    return this.paieService.update(id, dto, user?.role);
   }
 
   @Post(':id/delete')
@@ -206,4 +206,22 @@ export class PaieController {
   async remove(@Param('id', ParseIntPipe) id: number): Promise<void> {
     await this.paieService.remove(id);
   }
+
+  private async assertValid(dto: object): Promise<void> {
+    const errors = await validate(dto);
+    if (errors.length > 0) {
+      throw new BadRequestException(flattenValidationErrors(errors).join(' ; '));
+    }
+  }
+}
+
+function flattenValidationErrors(errors: ValidationError[], prefix = ''): string[] {
+  return errors.flatMap((error) => {
+    const path = prefix ? `${prefix}.${error.property}` : error.property;
+    const own = Object.values(error.constraints ?? {});
+    const nested = error.children?.length
+      ? flattenValidationErrors(error.children, path)
+      : [];
+    return [...(own.length ? own : nested.length ? [] : [`${path} invalide`]), ...nested];
+  });
 }

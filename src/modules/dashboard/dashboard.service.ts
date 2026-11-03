@@ -6,10 +6,18 @@ import {
   StatutOffreEmploi,
   StatutPaie,
   StatutPresence,
-  TypeAbsence,
   TypeFormation,
 } from '@prisma/client';
+import {
+  addDays,
+  endOfDayUTC,
+  startOfDayUTC,
+  todayISO,
+} from '../../common/utils/date.util';
+import { requireEmployeForUser } from '../../common/employe-link/employe-link';
 import { PrismaService } from '../../prisma/prisma.service';
+import { computeLeaveBalance } from '../absences/leave-balance';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   ActiviteRecente,
   DashboardStatsResponse,
@@ -23,39 +31,17 @@ import {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async getEmployeeDashboard(userId: number): Promise<EmployeeDashboardResponse> {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const employe = await requireEmployeForUser(this.prisma, userId);
 
-    if (!user) {
-      throw new NotFoundException('Utilisateur introuvable');
-    }
-
-    const employe = await this.prisma.employe.findFirst({
-      where: { email: user.email },
-    });
-
-    if (!employe) {
-      throw new NotFoundException(
-        'Aucun employé associé à ce compte utilisateur',
-      );
-    }
-
-    const currentYear = new Date().getFullYear();
-    const startOfYear = new Date(currentYear, 0, 1);
-    const endOfYear = new Date(currentYear, 11, 31, 23, 59, 59, 999);
-
-    const [approvedLeaves, pendingLeaves, lastPaie, unreadNotifications] =
+    const [balance, pendingLeaves, lastPaie, unreadNotifications] =
       await Promise.all([
-        this.prisma.absence.findMany({
-          where: {
-            employeId: employe.id,
-            statut: StatutAbsence.approuve,
-            typeAbsence: TypeAbsence.conge_paye,
-            dateDebut: { gte: startOfYear, lte: endOfYear },
-          },
-        }),
+        computeLeaveBalance(this.prisma, employe),
         this.prisma.absence.count({
           where: {
             employeId: employe.id,
@@ -63,24 +49,11 @@ export class DashboardService {
           },
         }),
         this.prisma.paie.findFirst({
-          where: { employeId: employe.id },
+          where: { employeId: employe.id, statut: StatutPaie.paye },
           orderBy: [{ annee: 'desc' }, { mois: 'desc' }],
         }),
-        this.prisma.notification.count({
-          where: { employeId: employe.id, lu: false },
-        }),
+        this.notificationsService.countUnreadForUser(userId),
       ]);
-
-    const ANNUAL_LEAVE_DAYS = 30;
-    let joursPris = 0;
-
-    for (const absence of approvedLeaves) {
-      const debut = new Date(absence.dateDebut);
-      const fin = new Date(absence.dateFin);
-      debut.setHours(0, 0, 0, 0);
-      fin.setHours(0, 0, 0, 0);
-      joursPris += Math.floor((fin.getTime() - debut.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    }
 
     return {
       employe: {
@@ -91,7 +64,7 @@ export class DashboardService {
         departement: employe.departement,
       },
       conges: {
-        soldeRestant: ANNUAL_LEAVE_DAYS - joursPris,
+        soldeRestant: balance.soldeRestant,
         demandesEnCours: pendingLeaves,
       },
       dernierePaie: lastPaie
@@ -106,14 +79,12 @@ export class DashboardService {
   }
 
   async getStats(): Promise<DashboardStatsResponse> {
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+    const today = todayISO();
+    // createdAt est un horodatage réel : début du mois à minuit heure locale (UTC+1).
+    const startOfMonth = new Date(`${today.slice(0, 7)}-01T00:00:00+01:00`);
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const startOfToday = startOfDayUTC(today);
+    const endOfToday = endOfDayUTC(today);
 
     const [
       totalEmployes,
@@ -201,9 +172,8 @@ export class DashboardService {
   }
 
   async getPresencesChart(): Promise<PresencesChartDay[]> {
-    const from = new Date();
-    from.setDate(from.getDate() - 30);
-    from.setHours(0, 0, 0, 0);
+    const todayStart = startOfDayUTC(todayISO());
+    const from = addDays(todayStart, -29);
 
     const groups = await this.prisma.presence.groupBy({
       by: ['date', 'statut'],
@@ -217,9 +187,7 @@ export class DashboardService {
     >();
 
     for (let i = 0; i < 30; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - (29 - i));
-      const key = d.toISOString().slice(0, 10);
+      const key = addDays(from, i).toISOString().slice(0, 10);
       byDate.set(key, { presents: 0, absents: 0, retards: 0 });
     }
 
@@ -255,8 +223,7 @@ export class DashboardService {
   }
 
   async getDepartements(): Promise<DepartementStats[]> {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = addDays(startOfDayUTC(todayISO()), -30);
 
     const [employes, presences] = await Promise.all([
       this.prisma.employe.findMany({
@@ -366,8 +333,7 @@ export class DashboardService {
   }
 
   async getSynthese(): Promise<StatistiquesSyntheseResponse> {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = addDays(startOfDayUTC(todayISO()), -30);
 
     const [
       totalEmployes,
@@ -387,6 +353,7 @@ export class DashboardService {
       this.prisma.employe.count({ where: { statut: StatutEmploye.suspendu } }),
       this.prisma.paie.groupBy({
         by: ['mois', 'annee'],
+        where: { statut: { not: StatutPaie.annule } },
         _sum: { salaireNet: true },
         orderBy: [{ annee: 'desc' }, { mois: 'desc' }],
         take: 12,

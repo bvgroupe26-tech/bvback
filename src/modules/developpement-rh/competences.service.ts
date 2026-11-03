@@ -12,6 +12,7 @@ export class CompetencesService {
   findAll(query: QueryCompetencesDto): Promise<Competence[]> {
     return this.prisma.competence.findMany({
       where: this.buildWhere(query),
+      include: { employe: { select: { nom: true, prenom: true, poste: true } } },
       orderBy: { nomCompetence: 'asc' },
     });
   }

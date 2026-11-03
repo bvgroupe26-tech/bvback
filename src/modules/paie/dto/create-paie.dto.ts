@@ -8,8 +8,10 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Min,
 } from 'class-validator';
+import { MOIS_REGEX, NormalizeMois } from '../../../common/transforms/normalize-mois.transform';
 
 export class CreatePaieDto {
   @ApiProperty({
@@ -26,8 +28,10 @@ export class CreatePaieDto {
     description:
       'Mois de référence du bulletin (souvent « 01 » à « 12 », ou convention interne BV Groupe).',
   })
+  @NormalizeMois()
   @IsString()
   @IsNotEmpty()
+  @Matches(MOIS_REGEX, { message: 'mois doit être compris entre "01" et "12"' })
   mois!: string;
 
   @ApiProperty({

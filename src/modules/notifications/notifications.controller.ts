@@ -5,11 +5,13 @@ import {
   Param,
   ParseIntPipe,
   Put,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import {
@@ -36,10 +38,19 @@ export class NotificationsController {
     description:
       'Liste centralisée : notifications adressées au compte (RH/admin) ou à la fiche employé liée (PWA).',
   })
+  @ApiQuery({ name: 'limit', required: false, example: 100 })
+  @ApiQuery({ name: 'offset', required: false, example: 0 })
   @ApiOkDataResponse('Notifications du compte connecté')
   @ApiAuthResponses()
-  findMine(@CurrentUser() user: UserPayload): Promise<Notification[]> {
-    return this.notificationsService.findForUser(user.id);
+  findMine(
+    @CurrentUser() user: UserPayload,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ): Promise<Notification[]> {
+    return this.notificationsService.findForUser(user.id, {
+      limit: toPositiveInt(limit),
+      offset: toPositiveInt(offset),
+    });
   }
 
   @Get('me/unread-count')
@@ -86,4 +97,9 @@ export class NotificationsController {
   ): Promise<Notification> {
     return this.notificationsService.markAsRead(id, user.id);
   }
+}
+
+function toPositiveInt(value?: string): number | undefined {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
 }

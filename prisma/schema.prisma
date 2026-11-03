@@ -160,10 +160,12 @@ model Employe {
   defAutresPrimes         Float              @default(0)
   defTauxCnss             Float?
   defTauxImpot            Float?
+  userId                  Int?               @unique
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   deletedAt               DateTime?
 
+  user           User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   presences      Presence[]
   absences       Absence[]
   paies          Paie[]
@@ -198,6 +200,7 @@ model Presence {
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
 
+  // Unicité (employeId, date) hors soft delete : index partiel SQL (migration 20261102120000_audit_security).
   @@index([date])
   @@index([employeId, date])
   @@map("presences")
@@ -243,6 +246,7 @@ model Paie {
 
   employe Employe @relation(fields: [employeId], references: [id], onDelete: Cascade)
 
+  // Unicité (employeId, mois, annee) hors annulés / soft delete : index partiel SQL (migration 20261102120000_audit_security).
   @@index([employeId, mois, annee])
   @@index([annee, mois])
   @@index([employeId])
@@ -363,7 +367,9 @@ model User {
   notifications Notification[]
   pushSubscriptions PushSubscription[]
   refreshTokens   RefreshToken[]
+  employe         Employe?
 
+  // Unicité lower(email) hors soft delete : index partiel SQL (migration 20261102120000_audit_security).
   @@index([email])
   @@map("users")
 }

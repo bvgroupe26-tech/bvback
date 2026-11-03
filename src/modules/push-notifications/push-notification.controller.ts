@@ -22,6 +22,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import {
+  ResubscribePushDto,
   SubscribePushDto,
   UnsubscribePushDto,
 } from './dto/subscribe-push.dto';
@@ -63,6 +64,20 @@ export class PushNotificationController {
     @Body() dto: SubscribePushDto,
   ) {
     return this.pushNotificationService.subscribe(user.id, dto);
+  }
+
+  @Post('resubscribe')
+  @Public()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Remplacer une subscription expirée (service worker)',
+    description:
+      'Appelé par pushsubscriptionchange sans JWT : remplace l\'abonnement seulement si oldEndpoint est déjà en base, et le rattache au même compte.',
+  })
+  @ApiBody({ type: ResubscribePushDto })
+  @ApiOkDataResponse('{ replaced: boolean }')
+  resubscribe(@Body() dto: ResubscribePushDto) {
+    return this.pushNotificationService.resubscribe(dto);
   }
 
   @Delete('unsubscribe')

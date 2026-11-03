@@ -4,11 +4,13 @@ import {
   ApiAuthResponses,
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { DashboardService } from './dashboard.service';
 import { StatistiquesSyntheseResponse } from './types/dashboard.types';
 
 @ApiTags('statistiques')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller('statistiques')
 export class StatistiquesController {
   constructor(private readonly dashboardService: DashboardService) {}

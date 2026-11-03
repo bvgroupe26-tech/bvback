@@ -175,13 +175,8 @@ describe('paie-eligibility', () => {
     it('calcule correctement les bornes de mai 2026', () => {
       const { start, end } = getPaiePeriodBounds('05', 2026);
 
-      expect(start.getFullYear()).toBe(2026);
-      expect(start.getMonth()).toBe(4);
-      expect(start.getDate()).toBe(1);
-
-      expect(end.getFullYear()).toBe(2026);
-      expect(end.getMonth()).toBe(4);
-      expect(end.getDate()).toBe(31);
+      expect(start.toISOString()).toBe('2026-05-01T00:00:00.000Z');
+      expect(end.toISOString()).toBe('2026-05-31T23:59:59.999Z');
     });
   });
 

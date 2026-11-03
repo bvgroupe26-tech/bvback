@@ -11,6 +11,7 @@ export class EvaluationsService {
   findAll(query: QueryEvaluationsDto): Promise<Evaluation[]> {
     return this.prisma.evaluation.findMany({
       where: this.buildWhere(query),
+      include: { employe: { select: { nom: true, prenom: true, poste: true } } },
       orderBy: { dateEvaluation: 'desc' },
     });
   }

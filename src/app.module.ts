@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env.validation';
 import { GlobalAuthGuard } from './common/guards/global-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -28,6 +29,8 @@ import { SchedulerAppModule } from './modules/scheduler/scheduler.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
+    // Appliqué seulement aux routes d'auth via AuthThrottlerGuard (pas de guard global).
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 30 }]),
     PrismaModule,
     SchedulerAppModule,
     ActiviteModule,

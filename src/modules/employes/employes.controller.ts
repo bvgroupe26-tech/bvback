@@ -33,6 +33,7 @@ import {
   ApiOkDataResponse,
 } from '../../common/swagger/api-responses.decorator';
 import { Employe } from '@prisma/client';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserPayload } from '../auth/types/auth.types';
 import { CreateEmployeDto } from './dto/create-employe.dto';
@@ -42,6 +43,7 @@ import {
 } from './dto/poste-referentiel.dto';
 import { QueryEmployesDto } from './dto/query-employes.dto';
 import { UpdateEmployeDto } from './dto/update-employe.dto';
+import { UpdateEmployeMeDto } from './dto/update-employe-me.dto';
 import { EmployesService } from './employes.service';
 import { EmployesStatsResponse } from './types/employes-stats.type';
 
@@ -60,6 +62,7 @@ const AVATAR_UPLOAD_OPTIONS: MulterOptions = {
 
 @ApiTags('employes')
 @ApiBearerAuth('JWT')
+@Roles('admin', 'rh', 'manager')
 @Controller('employes')
 export class EmployesController {
   constructor(private readonly employesService: EmployesService) {}
@@ -86,6 +89,7 @@ export class EmployesController {
   }
 
   @Post()
+  @Roles('admin', 'rh')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Créer un employé' })
   @ApiBody({ type: CreateEmployeDto })
@@ -108,6 +112,7 @@ export class EmployesController {
   }
 
   @Post('postes/referentiel')
+  @Roles('admin', 'rh')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Ajouter un poste au référentiel' })
   @ApiBody({ type: CreatePosteReferentielDto })
@@ -121,6 +126,7 @@ export class EmployesController {
   }
 
   @Post('postes/referentiel/remove')
+  @Roles('admin', 'rh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Retirer un poste du référentiel' })
   @ApiBody({ type: RemovePosteReferentielDto })
@@ -134,9 +140,10 @@ export class EmployesController {
   }
 
   @Get('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Ma fiche employé',
-    description: 'Fiche RH de l\'employé connecté (liée par email au compte User).',
+    description: 'Fiche RH liée au compte connecté.',
   })
   @ApiOkDataResponse('Fiche employé connecté')
   @ApiNotFoundResponse('Employé')
@@ -146,23 +153,25 @@ export class EmployesController {
   }
 
   @Put('me')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @ApiOperation({
     summary: 'Mettre à jour ma fiche employé',
-    description: 'Mise à jour partielle de la fiche RH liée au compte connecté.',
+    description: 'Coordonnées uniquement (téléphone, adresse, situation familiale).',
   })
-  @ApiBody({ type: UpdateEmployeDto })
+  @ApiBody({ type: UpdateEmployeMeDto })
   @ApiOkDataResponse('Fiche employé mise à jour')
   @ApiNotFoundResponse('Employé')
   @ApiBadRequestResponse()
   @ApiAuthResponses()
   updateMine(
     @CurrentUser() user: UserPayload,
-    @Body() dto: UpdateEmployeDto,
+    @Body() dto: UpdateEmployeMeDto,
   ): Promise<Employe> {
     return this.employesService.updateByUserId(user.id, dto);
   }
 
   @Put('me/avatar')
+  @Roles('admin', 'rh', 'manager', 'employee')
   @UseInterceptors(FileInterceptor('avatar', AVATAR_UPLOAD_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -196,6 +205,7 @@ export class EmployesController {
   }
 
   @Put(':id')
+  @Roles('admin', 'rh')
   @ApiOperation({ summary: 'Mettre à jour un employé', description: 'Mise à jour partielle.' })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiBody({ type: UpdateEmployeDto })
@@ -211,6 +221,7 @@ export class EmployesController {
   }
 
   @Put(':id/avatar')
+  @Roles('admin', 'rh')
   @UseInterceptors(FileInterceptor('avatar', AVATAR_UPLOAD_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
@@ -235,6 +246,7 @@ export class EmployesController {
   }
 
   @Post(':id/delete')
+  @Roles('admin', 'rh')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Archiver un employé',
