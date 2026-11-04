@@ -12,6 +12,8 @@ import { Request, Response } from 'express';
 export interface ApiErrorResponse {
   ok: false;
   error: string;
+  /** Codes métier facultatifs (ex. paramètres de paie manquants, 422). */
+  codes?: string[];
 }
 
 @Catch()
@@ -52,6 +54,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ok: false,
       error: message,
     };
+    if (exception instanceof HttpException && status < HttpStatus.INTERNAL_SERVER_ERROR) {
+      const resp = exception.getResponse() as Record<string, unknown> | string;
+      if (typeof resp === 'object' && Array.isArray(resp?.['codes'])) {
+        body.codes = (resp['codes'] as unknown[]).map(String);
+      }
+    }
 
     response.status(status).json(body);
   }

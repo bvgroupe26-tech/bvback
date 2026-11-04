@@ -41,8 +41,10 @@ import { GeneratePaieDto } from './dto/generate-paie.dto';
 import { QueryPaieDto } from './dto/query-paie.dto';
 import { UpdatePaieDto } from './dto/update-paie.dto';
 import { PaieService } from './paie.service';
+import { PayslipPdfService } from './pdf/payslip-pdf.service';
 import {
   GeneratePaieResult,
+  PaieDetail,
   PaieEvolutionPoint,
   PaieStatsResponse,
   PaieWithEmploye,
@@ -53,7 +55,10 @@ import {
 @Roles('admin', 'rh')
 @Controller('paie')
 export class PaieController {
-  constructor(private readonly paieService: PaieService) {}
+  constructor(
+    private readonly paieService: PaieService,
+    private readonly pdf: PayslipPdfService,
+  ) {}
 
   @Get('stats')
   @ApiOperation({
@@ -136,44 +141,49 @@ export class PaieController {
     return this.paieService.createManual(dto);
   }
 
-  @Get(':id/download')
+  @Get(':id/pdf')
   @Roles('admin', 'rh', 'manager', 'employee')
   @EmployeeScope({ resource: 'paie', staff: ['admin', 'rh'] })
   @ApiOperation({
     summary: 'Télécharger un bulletin PDF',
-    description: 'Génère et retourne un PDF du bulletin de paie.',
+    description: 'Moteur v2 : lignes et snapshots ; legacy : anciens champs.',
   })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiResponse({ status: 200, description: 'Fichier PDF' })
   @ApiNotFoundResponse('Bulletin')
   @ApiAuthResponses()
-  async download(
+  async pdfFile(
     @Param('id', ParseIntPipe) id: number,
     @Res() res: Response,
   ): Promise<void> {
     const bulletin = await this.paieService.findOne(id);
-    const employeNom = bulletin.employe
-      ? `${bulletin.employe.nom}_${bulletin.employe.prenom}`
-      : `employe_${bulletin.employeId}`;
+    const buffer = await this.pdf.render(bulletin.id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${this.pdf.fileNameFor(bulletin)}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(buffer);
+  }
 
-    const filename = `bulletin_${employeNom}_${bulletin.mois}_${bulletin.annee}.txt`;
-
-    const content = this.paieService.generateBulletinText(bulletin);
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(content);
+  /** Ancienne route (fichier texte) : sert désormais le même PDF. */
+  @Get(':id/download')
+  @Roles('admin', 'rh', 'manager', 'employee')
+  @EmployeeScope({ resource: 'paie', staff: ['admin', 'rh'] })
+  @ApiOperation({ summary: 'Télécharger un bulletin (alias de /pdf)', deprecated: true })
+  @ApiParam({ name: 'id', type: Number, example: 1 })
+  @ApiAuthResponses()
+  download(@Param('id', ParseIntPipe) id: number, @Res() res: Response): Promise<void> {
+    return this.pdfFile(id, res);
   }
 
   @Get(':id')
   @Roles('admin', 'rh', 'manager', 'employee')
   @EmployeeScope({ resource: 'paie', staff: ['admin', 'rh'] })
-  @ApiOperation({ summary: 'Détail d\'un bulletin' })
+  @ApiOperation({ summary: 'Détail d\'un bulletin (lignes, snapshots, cumuls)' })
   @ApiParam({ name: 'id', type: Number, example: 1 })
   @ApiOkDataResponse('Bulletin avec employé')
   @ApiNotFoundResponse('Bulletin')
   @ApiAuthResponses()
-  findOne(@Param('id', ParseIntPipe) id: number): Promise<PaieWithEmploye> {
+  findOne(@Param('id', ParseIntPipe) id: number): Promise<PaieDetail> {
     return this.paieService.findOne(id);
   }
 

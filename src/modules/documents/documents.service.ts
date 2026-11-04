@@ -3,6 +3,7 @@ import { DocumentRh } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { requireEmployeForUser } from '../../common/employe-link/employe-link';
+import { parseStorageRef, PrivateBucketStorage } from '../../common/storage/private-bucket.storage';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -30,6 +31,13 @@ export class DocumentsService {
 
   async getFileBuffer(id: number): Promise<{ buffer: Buffer; document: DocumentRh }> {
     const document = await this.findOneOrThrow(id);
+
+    if (parseStorageRef(document.fichierPath)) {
+      const buffer = await PrivateBucketStorage.download(document.fichierPath);
+      if (!buffer) throw new NotFoundException('Le fichier associé est introuvable dans le stockage');
+      return { buffer, document };
+    }
+
     const absolutePath = path.join(process.cwd(), document.fichierPath);
 
     if (!fs.existsSync(absolutePath)) {

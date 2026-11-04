@@ -135,9 +135,10 @@ describe('état de préparation', () => {
     expect(needed.get('TX_SAL')).toEqual(['CNSS_PENSION']);
   });
 
-  it('qualifie un paramètre absent, à zéro ou à confirmer', () => {
+  it('qualifie un paramètre absent ou à confirmer ; 0 est une valeur valide', () => {
     expect(parameterIssue(null)).toBe('absent');
-    expect(parameterIssue({ valeur: 0, description: 'Plafond' })).toBe('zero');
+    expect(parameterIssue({ valeur: 0, description: 'Plafond' })).toBeNull();
+    expect(parameterIssue({ valeur: 0, description: 'Plafond — À CONFIRMER' })).toBe('a_confirmer');
     expect(parameterIssue({ valeur: 4, description: 'Taux — À CONFIRMER par le comptable' })).toBe('a_confirmer');
     expect(parameterIssue({ valeur: 4, description: 'Taux salarial' })).toBeNull();
   });

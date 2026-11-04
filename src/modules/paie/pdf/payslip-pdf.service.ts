@@ -7,8 +7,8 @@ import {
   TypeDocumentRh,
   TypeRubrique,
 } from '@prisma/client';
-import * as fs from 'fs';
 import * as path from 'path';
+import { PrivateBucketStorage } from '../../../common/storage/private-bucket.storage';
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
 import { computeLeaveBalance, LeaveBalance } from '../../absences/leave-balance';
@@ -168,6 +168,7 @@ function safeFileName(s: string): string {
 @Injectable()
 export class PayslipPdfService {
   private readonly logger = new Logger(PayslipPdfService.name);
+  private readonly bulletinsStorage = new PrivateBucketStorage('bulletins-paie');
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -185,11 +186,12 @@ export class PayslipPdfService {
     const fileName = safeFileName(
       `${vue.numero ?? `bulletin-${paie.annee}-${paie.mois.padStart(2, '0')}-${paie.id}`}.pdf`,
     );
-    // Hors de /uploads (servi publiquement sans authentification).
-    const relativePath = path.posix.join('storage', 'bulletins', String(paie.annee), fileName);
-    const absolutePath = path.join(process.cwd(), relativePath);
-    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
-    fs.writeFileSync(absolutePath, buffer);
+    // Bucket privé : le disque Render est éphémère et /uploads est public.
+    const relativePath = await this.bulletinsStorage.put(
+      path.posix.join(String(paie.annee), fileName),
+      buffer,
+      'application/pdf',
+    );
 
     const suffix =
       paie.type === TypeBulletin.rappel

@@ -6,9 +6,11 @@ import {
 } from '@nestjs/common';
 import {
   Employe,
+  MoteurPaie,
   Paie,
   Prisma,
   StatutPaie,
+  StatutPeriodePaie,
   TypeNotification,
   UserRole,
 } from '@prisma/client';
@@ -22,6 +24,7 @@ import { QueryPaieDto } from './dto/query-paie.dto';
 import { UpdatePaieDto } from './dto/update-paie.dto';
 import { CalcInput, PaieCalcService } from './paie-calc.service';
 import {
+  applyPaieProrata,
   buildProratedPaieAmounts,
   checkPaieEligibility,
   createEmptyPaieSkipSummary,
@@ -31,6 +34,8 @@ import {
   PaieEvolutionPoint,
   PaieSkippedEntry,
   PaieStatsResponse,
+  PaieDetail,
+  paieDetailInclude,
   PaieWithEmploye,
   paieWithEmployeInclude,
 } from './types/paie.types';
@@ -52,10 +57,10 @@ export class PaieService {
     });
   }
 
-  async findOne(id: number): Promise<PaieWithEmploye> {
+  async findOne(id: number): Promise<PaieDetail> {
     const paie = await this.prisma.paie.findFirst({
       where: { id, deletedAt: null },
-      include: paieWithEmployeInclude,
+      include: paieDetailInclude,
     });
 
     if (!paie) {
@@ -69,65 +74,10 @@ export class PaieService {
     const employe = await this.findEmployeByUserId(userId);
 
     return this.prisma.paie.findMany({
-      where: { employeId: employe.id, statut: StatutPaie.paye },
+      where: { employeId: employe.id, statut: StatutPaie.paye, deletedAt: null },
       include: paieWithEmployeInclude,
       orderBy: [{ annee: 'desc' }, { mois: 'desc' }],
     });
-  }
-
-  generateBulletinText(bulletin: PaieWithEmploye): string {
-    const emp = bulletin.employe;
-    const nom = emp ? `${emp.nom} ${emp.prenom}` : `Employé #${bulletin.employeId}`;
-    const brut =
-      bulletin.salaireBase +
-      bulletin.primeTransport +
-      bulletin.primeLogement +
-      bulletin.primePerformance +
-      bulletin.autresPrimes;
-
-    const lines = [
-      '═══════════════════════════════════════════',
-      '           BULLETIN DE PAIE',
-      '═══════════════════════════════════════════',
-      '',
-      `Employé       : ${nom}`,
-      `Poste         : ${emp?.poste ?? '-'}`,
-      `Département   : ${emp?.departement ?? '-'}`,
-      `Période       : ${bulletin.mois}/${bulletin.annee}`,
-      ...(bulletin.joursTravailles != null &&
-      bulletin.joursPeriode != null &&
-      bulletin.joursTravailles < bulletin.joursPeriode
-        ? [
-            `Prorata       : ${bulletin.joursTravailles}/${bulletin.joursPeriode} jours`,
-          ]
-        : []),
-      '',
-      '───────────────────────────────────────────',
-      ' RÉMUNÉRATION',
-      '───────────────────────────────────────────',
-      `Salaire de base      : ${bulletin.salaireBase.toFixed(2)}`,
-      `Prime transport      : ${bulletin.primeTransport.toFixed(2)}`,
-      `Prime logement       : ${bulletin.primeLogement.toFixed(2)}`,
-      `Prime performance    : ${bulletin.primePerformance.toFixed(2)}`,
-      `Autres primes        : ${bulletin.autresPrimes.toFixed(2)}`,
-      `TOTAL BRUT           : ${brut.toFixed(2)}`,
-      '',
-      '───────────────────────────────────────────',
-      ' RETENUES',
-      '───────────────────────────────────────────',
-      `CNSS                 : ${bulletin.cnss.toFixed(2)}`,
-      `Impôt                : ${bulletin.impot.toFixed(2)}`,
-      `Autres retenues      : ${bulletin.autresRetenues.toFixed(2)}`,
-      '',
-      '═══════════════════════════════════════════',
-      `NET À PAYER          : ${(bulletin.salaireNet ?? 0).toFixed(2)}`,
-      '═══════════════════════════════════════════',
-      '',
-      `Statut : ${bulletin.statut}`,
-      `Date paiement : ${bulletin.datePaiement ? new Date(bulletin.datePaiement).toLocaleDateString('fr-FR') : '-'}`,
-    ];
-
-    return lines.join('\n');
   }
 
   async createManual(dto: CreatePaieDto): Promise<PaieWithEmploye> {
@@ -135,29 +85,30 @@ export class PaieService {
 
     const employe = await this.getEmployeOrThrow(dto.employeId);
     const eligibility = this.assertPaieEligible(employe, dto.mois, dto.annee);
+    // Les montants saisis sont mensuels pleins : même prorata que la génération en masse.
+    const taux = eligibility.tauxProrata ?? 1;
+    const montants = {
+      salaireBase: applyPaieProrata(dto.salaireBase, taux),
+      primeTransport: applyPaieProrata(dto.primeTransport, taux),
+      primeLogement: applyPaieProrata(dto.primeLogement, taux),
+      primePerformance: applyPaieProrata(dto.primePerformance, taux),
+      autresPrimes: applyPaieProrata(dto.autresPrimes, taux),
+    };
     const calc = this.calcFromEmploye(employe, {
-      salaireBase: dto.salaireBase,
-      primeTransport: dto.primeTransport,
-      primeLogement: dto.primeLogement,
-      primePerformance: dto.primePerformance,
-      autresPrimes: dto.autresPrimes,
+      ...montants,
       autresRetenues: dto.autresRetenues,
       cnss: dto.cnss,
       impot: dto.impot,
     });
 
-    const statut = dto.statut ?? StatutPaie.en_attente;
+    const statut = StatutPaie.en_attente;
 
     const bulletin = await this.prisma.paie.create({
       data: {
         employeId: dto.employeId,
         mois: dto.mois,
         annee: dto.annee,
-        salaireBase: dto.salaireBase,
-        primeTransport: dto.primeTransport,
-        primeLogement: dto.primeLogement,
-        primePerformance: dto.primePerformance,
-        autresPrimes: dto.autresPrimes,
+        ...montants,
         cnss: calc.cnss,
         impot: calc.impot,
         autresRetenues: dto.autresRetenues,
@@ -165,28 +116,23 @@ export class PaieService {
         joursTravailles: eligibility.joursTravailles,
         joursPeriode: eligibility.joursPeriode,
         statut,
-        datePaiement: statut === StatutPaie.paye ? new Date() : null,
       },
       include: paieWithEmployeInclude,
     });
 
-    if (statut === StatutPaie.paye) {
-      await this.notifyBulletinPaye(bulletin);
-    } else {
-      await this.notificationsService.safeNotifyEmploye(
-        bulletin.employeId,
-        'Bulletin de paie préparé',
-        `Votre bulletin de paie pour ${dto.mois}/${dto.annee} a été enregistré par la RH.`,
-        TypeNotification.paie,
-        {
-          paieId: bulletin.id,
-          employeId: bulletin.employeId,
-          mois: dto.mois,
-          annee: dto.annee,
-          statut,
-        },
-      );
-    }
+    await this.notificationsService.safeNotifyEmploye(
+      bulletin.employeId,
+      'Bulletin de paie préparé',
+      `Votre bulletin de paie pour ${dto.mois}/${dto.annee} a été enregistré par la RH.`,
+      TypeNotification.paie,
+      {
+        paieId: bulletin.id,
+        employeId: bulletin.employeId,
+        mois: dto.mois,
+        annee: dto.annee,
+        statut,
+      },
+    );
 
     return bulletin;
   }
@@ -326,6 +272,12 @@ export class PaieService {
   ): Promise<PaieWithEmploye> {
     const existing = await this.findOne(id);
 
+    if (existing.moteur === MoteurPaie.v2) {
+      throw new ConflictException(
+        'Bulletin du moteur v2 : le modifier par le workflow de période (recalcul, contre-bulletin ou rappel).',
+      );
+    }
+
     if (existing.statut === StatutPaie.paye) {
       return this.updatePaidBulletin(existing, dto, actorRole);
     }
@@ -448,7 +400,15 @@ export class PaieService {
   }
 
   async remove(id: number): Promise<void> {
-    await this.findOne(id);
+    const paie = await this.findOne(id);
+    if (paie.statut === StatutPaie.paye || paie.statut === StatutPaie.valide || paie.numero) {
+      throw new ConflictException(
+        'Bulletin validé ou payé : il ne se supprime pas, il s’annule (contre-bulletin pour le moteur v2).',
+      );
+    }
+    if (paie.period?.statut === StatutPeriodePaie.cloturee) {
+      throw new ConflictException('Période clôturée : plus aucune écriture possible.');
+    }
     await this.prisma.paie.update({
       where: { id },
       data: { deletedAt: new Date() },

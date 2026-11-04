@@ -2,7 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StatutPaie } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
-  IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -126,13 +126,15 @@ export class CreatePaieDto {
   autresRetenues!: number;
 
   @ApiPropertyOptional({
-    enum: StatutPaie,
+    enum: [StatutPaie.en_attente],
     default: StatutPaie.en_attente,
     example: StatutPaie.en_attente,
     description:
-      'État du bulletin : en attente de validation, payé ou annulé.',
+      'Toujours « en_attente » à la création : le paiement passe par la mise à jour du bulletin.',
   })
   @IsOptional()
-  @IsEnum(StatutPaie)
+  @IsIn([StatutPaie.en_attente], {
+    message: 'Un bulletin se crée en attente ; le marquer payé ou annulé ensuite.',
+  })
   statut?: StatutPaie;
 }

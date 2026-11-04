@@ -127,15 +127,14 @@ export function requiredParameters(rules: RuleRefs[]): Map<string, string[]> {
   return needed;
 }
 
-export type ParameterIssue = 'absent' | 'zero' | 'a_confirmer';
+export type ParameterIssue = 'absent' | 'a_confirmer';
 
-/** Une valeur à 0 ou marquée « À CONFIRMER » n'est pas utilisable par le moteur v2. */
+/** Même règle que le moteur : 0 est valide (ex. « pas de plafond ») ; seuls l'absence et « À CONFIRMER » bloquent. */
 export function parameterIssue(
   row: { valeur: number; description: string | null } | null,
 ): ParameterIssue | null {
   if (!row) return 'absent';
   if (row.description && /[àa]\s*confirmer/i.test(row.description)) return 'a_confirmer';
-  if (row.valeur === 0) return 'zero';
   return null;
 }
 

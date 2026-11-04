@@ -65,6 +65,13 @@ const PARAMETERS: Array<{ code: string; description: string }> = [
   { code: 'SMIG', description: 'SMIG mensuel (FCFA)' },
   { code: 'BASE_JOURS_MOIS', description: 'Base de prorata : nombre de jours par mois' },
   { code: 'HEURES_MOIS', description: 'Heures mensuelles de référence (taux horaire)' },
+  { code: 'PRORATA_MODE', description: 'Mode de prorata : 0 = base fixe (BASE_JOURS_MOIS), 1 = jours calendaires, 2 = jours ouvrés' },
+  { code: 'IRPP_ANNUALISER', description: 'IRPP : 1 = calcul annualisé (×12 puis ÷12), 0 = barème mensuel' },
+  { code: 'HS_SEUIL_TRANCHE1_SEMAINE', description: 'Heures sup : nombre d’heures par semaine payées en tranche 1, au-delà en tranche 2' },
+  { code: 'QF_PARTS_CELIBATAIRE', description: 'Quotient familial : parts d’un célibataire / divorcé / veuf' },
+  { code: 'QF_PARTS_MARIE', description: 'Quotient familial : parts d’un salarié marié' },
+  { code: 'QF_PART_PAR_ENFANT', description: 'Quotient familial : parts par enfant à charge' },
+  { code: 'QF_PARTS_MAX', description: 'Quotient familial : nombre maximal de parts' },
 ];
 
 const DATE_DEBUT = new Date(Date.UTC(2026, 0, 1));

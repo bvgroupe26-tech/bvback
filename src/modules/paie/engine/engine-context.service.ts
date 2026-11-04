@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ModeCalculRubrique, MoteurPaie, StatutPaie } from '@prisma/client';
+import { ModeCalculRubrique, MoteurPaie, StatutPaie, TypeBulletin } from '@prisma/client';
 import Decimal from 'decimal.js';
 import { countBusinessDays, monthBoundsUTC, parseDateOnly } from '../../../common/utils/date.util';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -82,6 +82,9 @@ export class PayrollEngineContextService {
           annee,
           moteur: MoteurPaie.v2,
           statut: { in: [StatutPaie.valide, StatutPaie.paye] },
+          // L'original annulé est déjà exclu : compter son contre-bulletin le déduirait deux fois.
+          type: { not: TypeBulletin.contre_bulletin },
+          deletedAt: null,
         },
         select: {
           mois: true,

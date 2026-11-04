@@ -7,6 +7,7 @@ export const paieWithEmployeInclude = {
       prenom: true,
       poste: true,
       departement: true,
+      matricule: true,
     },
   },
 } satisfies Prisma.PaieInclude;
@@ -14,6 +15,17 @@ export const paieWithEmployeInclude = {
 export type PaieWithEmploye = Prisma.PaieGetPayload<{
   include: typeof paieWithEmployeInclude;
 }>;
+
+/** Détail : lignes (moteur v2), snapshots et cumuls sont des champs scalaires inclus d'office. */
+export const paieDetailInclude = {
+  ...paieWithEmployeInclude,
+  lignes: { orderBy: [{ ordre: 'asc' }, { code: 'asc' }] },
+  period: { select: { id: true, statut: true } },
+  annuleBulletin: { select: { id: true, numero: true } },
+  contreBulletins: { where: { deletedAt: null }, select: { id: true, numero: true } },
+} satisfies Prisma.PaieInclude;
+
+export type PaieDetail = Prisma.PaieGetPayload<{ include: typeof paieDetailInclude }>;
 
 import type { PaieSkipReason, PaieSkipSummary } from '../paie-eligibility.util';
 
