@@ -173,4 +173,51 @@ describe('PayrollPeriodsService', () => {
     await expect(service.contreBulletin(10, 7)).rejects.toThrow(ForbiddenException);
     expect(prisma.paie.create).not.toHaveBeenCalled();
   });
+
+  describe('traitement d’un employé précis', () => {
+    it('calculer ne charge que les employés demandés, sans doublon', async () => {
+      const { service, prisma } = setup({ statut: StatutPeriodePaie.ouverte });
+      prisma.employe.findMany.mockResolvedValue([{ id: 5, nom: 'N', prenom: 'P', dateEmbauche: null }]);
+      await service.calculer(1, [5, 5]).catch(() => undefined);
+      expect(prisma.employe.findMany.mock.calls[0][0].where).toEqual({ deletedAt: null, id: { in: [5] } });
+    });
+
+    it('calculer sans liste (ou liste vide) vise toute la période', async () => {
+      for (const ids of [undefined, []]) {
+        const { service, prisma } = setup({ statut: StatutPeriodePaie.ouverte });
+        await service.calculer(1, ids);
+        expect(prisma.employe.findMany.mock.calls[0][0].where).toEqual({ deletedAt: null });
+      }
+    });
+
+    it('calculer refuse un employé inconnu', async () => {
+      const { service } = setup({ statut: StatutPeriodePaie.ouverte });
+      await expect(service.calculer(1, [999])).rejects.toThrow(/999/);
+    });
+
+    it('calculer reste possible dans une période déjà validée (employé ajouté après coup)', async () => {
+      const { service, settings } = setup({ statut: StatutPeriodePaie.validee });
+      await service.calculer(1, [5]).catch(() => undefined);
+      expect(settings.statut).toHaveBeenCalled();
+    });
+
+    it('valider ne touche que les bulletins de la sélection', async () => {
+      const { service, prisma } = setup({ statut: StatutPeriodePaie.calculee });
+      prisma.paie.findMany.mockResolvedValueOnce([bulletin(10, 1)]).mockResolvedValue([]);
+      await service.valider(1, 7, [1]);
+      expect(prisma.paie.findMany.mock.calls[0][0].where).toMatchObject({ employeId: { in: [1] } });
+    });
+
+    it('valider signale une sélection sans bulletin calculé', async () => {
+      const { service } = setup({ statut: StatutPeriodePaie.calculee });
+      await expect(service.valider(1, 7, [1])).rejects.toThrow(ConflictException);
+    });
+
+    it('payer ne paie que la sélection et refuse s’il n’y a rien à payer', async () => {
+      const { service, prisma } = setup({ statut: StatutPeriodePaie.calculee });
+      await expect(service.payer(1, { datePaiement: '2026-05-30', employeIds: [1] }, 7)).rejects.toThrow(ConflictException);
+      expect(prisma.paie.findMany.mock.calls[0][0].where).toMatchObject({ statut: StatutPaie.valide, employeId: { in: [1] } });
+      expect(prisma.paie.updateMany).not.toHaveBeenCalled();
+    });
+  });
 });

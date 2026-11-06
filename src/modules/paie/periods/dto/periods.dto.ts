@@ -34,7 +34,18 @@ export class CreatePeriodeDto {
   mois!: number;
 }
 
-export class PayerPeriodeDto {
+/** Restreint calculer / valider / payer à certains employés ; absent ou vide = toute la période. */
+export class ScopeEmployesDto {
+  @ApiPropertyOptional({ type: [Number], description: 'Employés concernés (défaut : tous)', example: [12] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @Type(() => Number)
+  @IsInt({ each: true })
+  employeIds?: number[];
+}
+
+export class PayerPeriodeDto extends ScopeEmployesDto {
   @ApiProperty({ example: '2026-05-30' })
   @IsDateString()
   datePaiement!: string;

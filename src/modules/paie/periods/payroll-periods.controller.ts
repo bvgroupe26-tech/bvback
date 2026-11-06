@@ -4,7 +4,7 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { ApiAuthResponses } from '../../../common/swagger/api-responses.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { UserPayload } from '../../auth/types/auth.types';
-import { CreatePeriodeDto, PayerPeriodeDto, RappelDto, SaveVariablesDto } from './dto/periods.dto';
+import { CreatePeriodeDto, PayerPeriodeDto, RappelDto, SaveVariablesDto, ScopeEmployesDto } from './dto/periods.dto';
 import { PayrollPeriodsService } from './payroll-periods.service';
 
 /** Workflow moteur v2 : période ouverte → calculee → validee → payee → cloturee. */
@@ -38,20 +38,24 @@ export class PayrollPeriodsController {
 
   @Post('periodes/:id/calculer')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Calculer (ou recalculer) les bulletins de la période' })
+  @ApiOperation({
+    summary: 'Calculer (ou recalculer) les bulletins de la période',
+    description: 'Corps optionnel { employeIds: [..] } pour ne calculer que ces employés (ex. un seul bulletin).',
+  })
   @ApiResponse({ status: 422, description: 'Paramétrage incomplet : { message, codes }' })
-  calculer(@Param('id', ParseIntPipe) id: number) {
-    return this.periods.calculer(id);
+  calculer(@Param('id', ParseIntPipe) id: number, @Body() dto: ScopeEmployesDto) {
+    return this.periods.calculer(id, dto?.employeIds);
   }
 
   @Post('periodes/:id/valider')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Valider les bulletins calculés',
-    description: 'Numéro, empreinte, snapshots, PDF archivé. Le bulletin du validateur est ignoré.',
+    description:
+      'Numéro, empreinte, snapshots, PDF archivé. Le bulletin du validateur est ignoré. Corps optionnel { employeIds: [..] } pour ne valider que ces employés.',
   })
-  valider(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: UserPayload) {
-    return this.periods.valider(id, user.id);
+  valider(@Param('id', ParseIntPipe) id: number, @Body() dto: ScopeEmployesDto, @CurrentUser() user: UserPayload) {
+    return this.periods.valider(id, user.id, dto?.employeIds);
   }
 
   @Post('periodes/:id/payer')

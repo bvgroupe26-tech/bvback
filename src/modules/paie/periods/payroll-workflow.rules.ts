@@ -3,11 +3,14 @@ import { StatutPaie, StatutPeriodePaie } from '@prisma/client';
 
 export type PeriodeAction = 'calculer' | 'valider' | 'payer' | 'cloturer' | 'variables';
 
+// Le statut de période est déduit des bulletins : on peut calculer, valider ou payer un employé à la fois.
+// Un nouveau bulletin calculé ramène la période à « calculee » ; payer reste possible tant que des
+// bulletins validés attendent, même si d'autres sont encore en cours de calcul.
 const ALLOWED_FROM: Record<PeriodeAction, StatutPeriodePaie[]> = {
-  variables: [StatutPeriodePaie.ouverte, StatutPeriodePaie.calculee],
-  calculer: [StatutPeriodePaie.ouverte, StatutPeriodePaie.calculee],
+  variables: [StatutPeriodePaie.ouverte, StatutPeriodePaie.calculee, StatutPeriodePaie.validee, StatutPeriodePaie.payee],
+  calculer: [StatutPeriodePaie.ouverte, StatutPeriodePaie.calculee, StatutPeriodePaie.validee, StatutPeriodePaie.payee],
   valider: [StatutPeriodePaie.calculee],
-  payer: [StatutPeriodePaie.validee],
+  payer: [StatutPeriodePaie.calculee, StatutPeriodePaie.validee],
   cloturer: [StatutPeriodePaie.payee],
 };
 

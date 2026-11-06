@@ -20,9 +20,19 @@ describe('payroll-workflow.rules', () => {
 
   it('refuse les sauts d’étape', () => {
     expect(() => assertPeriodeAction(StatutPeriodePaie.ouverte, 'valider')).toThrow(ConflictException);
-    expect(() => assertPeriodeAction(StatutPeriodePaie.calculee, 'payer')).toThrow(ConflictException);
-    expect(() => assertPeriodeAction(StatutPeriodePaie.validee, 'calculer')).toThrow(ConflictException);
-    expect(() => assertPeriodeAction(StatutPeriodePaie.validee, 'variables')).toThrow(ConflictException);
+    expect(() => assertPeriodeAction(StatutPeriodePaie.ouverte, 'payer')).toThrow(ConflictException);
+    expect(() => assertPeriodeAction(StatutPeriodePaie.validee, 'valider')).toThrow(ConflictException);
+    expect(() => assertPeriodeAction(StatutPeriodePaie.ouverte, 'cloturer')).toThrow(ConflictException);
+    expect(() => assertPeriodeAction(StatutPeriodePaie.calculee, 'cloturer')).toThrow(ConflictException);
+  });
+
+  it('permet de traiter un employé à la fois, même dans une période déjà avancée', () => {
+    // Un employé ajouté ou recalculé après la validation des autres.
+    expect(() => assertPeriodeAction(StatutPeriodePaie.validee, 'calculer')).not.toThrow();
+    expect(() => assertPeriodeAction(StatutPeriodePaie.payee, 'calculer')).not.toThrow();
+    expect(() => assertPeriodeAction(StatutPeriodePaie.validee, 'variables')).not.toThrow();
+    // Payer les bulletins validés pendant que d'autres sont encore à valider.
+    expect(() => assertPeriodeAction(StatutPeriodePaie.calculee, 'payer')).not.toThrow();
   });
 
   it('une période clôturée est en lecture seule', () => {

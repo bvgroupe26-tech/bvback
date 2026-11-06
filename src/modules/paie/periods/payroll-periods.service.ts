@@ -124,9 +124,11 @@ export class PayrollPeriodsService {
 
   // ─── Calcul ────────────────────────────────────────────────
 
-  async calculer(id: number): Promise<CalculResult> {
+  /** `employeIds` absent ou vide = tous les employés ; sinon uniquement ceux-là (ex. un seul bulletin). */
+  async calculer(id: number, employeIds?: number[]): Promise<CalculResult> {
     const period = await this.getPeriod(id);
     assertPeriodeAction(period.statut, 'calculer');
+    const scope = this.normalizeScope(employeIds);
 
     const finDeMois = new Date(Date.UTC(period.annee, period.mois, 0)).toISOString().slice(0, 10);
     const statut = await this.settings.statut(finDeMois);
@@ -140,9 +142,13 @@ export class PayrollPeriodsService {
 
     const mois = pad(period.mois);
     const employes = await this.prisma.employe.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(scope ? { id: { in: scope } } : {}) },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
     });
+    if (scope && employes.length !== scope.length) {
+      const trouves = new Set(employes.map((e) => e.id));
+      throw new BadRequestException(`Employé(s) introuvable(s) : ${scope.filter((i) => !trouves.has(i)).join(', ')}`);
+    }
     const existants = await this.prisma.paie.findMany({
       where: {
         employeId: { in: employes.map((e) => e.id) },
@@ -198,10 +204,11 @@ export class PayrollPeriodsService {
     }
 
     await this.refreshPeriodStatut(id);
-    await this.activite.log('paie_calculee', `Paie ${mois}/${period.annee} calculée : ${result.calcules} bulletin(s)`, null, {
+    await this.activite.log('paie_calculee', `Paie ${mois}/${period.annee} calculée : ${result.calcules} bulletin(s)`, scope?.length === 1 ? scope[0] : null, {
       periodId: id,
       calcules: result.calcules,
       erreurs: result.erreurs.length,
+      employeIds: scope ?? 'tous',
     });
     return result;
   }
@@ -268,14 +275,24 @@ export class PayrollPeriodsService {
 
   // ─── Validation ────────────────────────────────────────────
 
-  async valider(id: number, validatorUserId: number): Promise<ValidationResult> {
+  async valider(id: number, validatorUserId: number, employeIds?: number[]): Promise<ValidationResult> {
     const period = await this.getPeriod(id);
     assertPeriodeAction(period.statut, 'valider');
+    const scope = this.normalizeScope(employeIds);
 
     const bulletins = await this.prisma.paie.findMany({
-      where: { periodId: id, deletedAt: null, moteur: MoteurPaie.v2, statut: StatutPaie.calcule },
+      where: {
+        periodId: id,
+        deletedAt: null,
+        moteur: MoteurPaie.v2,
+        statut: StatutPaie.calcule,
+        ...(scope ? { employeId: { in: scope } } : {}),
+      },
       include: { employe: true, lignes: true },
     });
+    if (scope && bulletins.length === 0) {
+      throw new ConflictException('Aucun bulletin calculé à valider pour cette sélection.');
+    }
     const employeur = buildEmployeurSnapshot(await this.prisma.employeurSettings.findUnique({ where: { id: 1 } })) as unknown as Prisma.InputJsonValue;
     const result: ValidationResult = { periodId: id, valides: 0, ignoresAutoValidation: [], archivageEchoue: [] };
 
@@ -292,10 +309,11 @@ export class PayrollPeriodsService {
     }
 
     await this.refreshPeriodStatut(id);
-    await this.activite.log('paie_validee', `Paie ${pad(period.mois)}/${period.annee} : ${result.valides} bulletin(s) validé(s)`, null, {
+    await this.activite.log('paie_validee', `Paie ${pad(period.mois)}/${period.annee} : ${result.valides} bulletin(s) validé(s)`, scope?.length === 1 ? scope[0] : null, {
       periodId: id,
       valides: result.valides,
       ignores: result.ignoresAutoValidation.length,
+      employeIds: scope ?? 'tous',
     });
     return result;
   }
@@ -342,10 +360,20 @@ export class PayrollPeriodsService {
     const datePaiement = new Date(dto.datePaiement);
     if (Number.isNaN(datePaiement.getTime())) throw new BadRequestException('datePaiement invalide');
 
+    const scope = this.normalizeScope(dto.employeIds);
+
     const bulletins = await this.prisma.paie.findMany({
-      where: { periodId: id, deletedAt: null, statut: StatutPaie.valide },
+      where: {
+        periodId: id,
+        deletedAt: null,
+        statut: StatutPaie.valide,
+        ...(scope ? { employeId: { in: scope } } : {}),
+      },
       select: { id: true, employeId: true, netAPayer: true, mois: true, annee: true, type: true },
     });
+    if (bulletins.length === 0) {
+      throw new ConflictException('Aucun bulletin validé à payer' + (scope ? ' pour cette sélection.' : '.'));
+    }
     for (const b of bulletins) {
       await assertNotSelf(this.prisma, actorUserId, b.employeId, 'payer votre propre bulletin de paie');
     }
@@ -367,9 +395,10 @@ export class PayrollPeriodsService {
     }
 
     await this.refreshPeriodStatut(id);
-    await this.activite.log('paie_payee', `Paie ${pad(period.mois)}/${period.annee} payée : ${bulletins.length} bulletin(s)`, null, {
+    await this.activite.log('paie_payee', `Paie ${pad(period.mois)}/${period.annee} payée : ${bulletins.length} bulletin(s)`, scope?.length === 1 ? scope[0] : null, {
       periodId: id,
       payes: bulletins.length,
+      employeIds: scope ?? 'tous',
       modePaiement: dto.modePaiement ?? null,
       datePaiement: dto.datePaiement,
     });
@@ -564,6 +593,11 @@ export class PayrollPeriodsService {
   }
 
   // ─── Utilitaires ───────────────────────────────────────────
+
+  /** Liste d'employés dédoublonnée, ou null (= toute la période) si absente ou vide. */
+  private normalizeScope(employeIds?: number[]): number[] | null {
+    return employeIds?.length ? [...new Set(employeIds)] : null;
+  }
 
   private async getPeriod(id: number) {
     const period = await this.prisma.payrollPeriod.findUnique({ where: { id } });
